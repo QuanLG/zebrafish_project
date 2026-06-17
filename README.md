@@ -1,4 +1,4 @@
-# 🧬 斑马鱼分析系统 (Zebrafish Analysis Platform)
+# 🧬 斑马鱼分析平台 (Zebrafish Analysis Platform)
 
 基于 Django 的斑马鱼实验数据综合分析平台，提供 ROS 荧光视频分析、多指标统计作图、抗氧化报告生成等功能。
 
