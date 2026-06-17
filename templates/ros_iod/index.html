@@ -1,0 +1,810 @@
+{% extends 'base.html' %}
+
+{% block title %}ROS IOD 分析工具{% endblock %}
+
+{% block content %}
+<div class="container">
+    <div class="card">
+        <div class="header-with-back">
+            <h2>🔬 ROS IOD 分析工具</h2>
+            <a href="{% url 'home' %}" class="btn" style="text-decoration: none;">🏠 返回主页</a>
+        </div>
+        <div id="alert-container"></div>
+
+        {% if not is_authenticated and not has_used %}
+        <div class="alert alert-info" style="margin-bottom: 15px;">
+            💡 您有 <strong>1 次</strong> 免费使用机会，
+            <a href="{% url 'login' %}" style="color: #667eea; font-weight: bold;">登录</a> 后可不限次数使用。
+        </div>
+        {% endif %}
+        {% if not is_authenticated and has_used %}
+        <div class="alert alert-warning" style="margin-bottom: 15px;">
+            ⚠ 您已达到免费使用次数，请
+            <a href="{% url 'login' %}" style="color: #667eea; font-weight: bold;">登录</a> 后继续使用。
+        </div>
+        {% endif %}
+
+        <!-- 文件上传区域 -->
+        <div class="card upload-card">
+            <h3>📁 上传ZIP文件</h3>
+            <form id="upload-form" method="post" enctype="multipart/form-data" action="{% url 'ros_iod:upload' %}">
+                {% csrf_token %}
+                <div class="form-group">
+                    <label for="zip-file">请上传包含视频文件的ZIP压缩包 (.zip)</label>
+                    <input type="file" id="zip-file" name="zip_file" accept=".zip" required>
+                    <small class="form-text">ZIP文件应包含按文件夹组织的视频文件(.mp4)</small>
+                </div>
+                <button type="submit" class="btn" id="upload-btn">
+                    <span class="btn-text">上传文件</span>
+                    <span class="spinner" style="display: none;"></span>
+                </button>
+            </form>
+            <div id="upload-result" style="margin-top: 15px;"></div>
+        </div>
+
+        <!-- 文件夹选择区域 -->
+        <div id="folder-section" style="display: none;" class="card">
+            <h3>📂 选择分析文件夹</h3>
+            <div id="folder-list" class="folder-list"></div>
+            <button type="button" class="btn" id="confirm-folders-btn" style="margin-top: 15px;" disabled>
+                确认选择
+            </button>
+        </div>
+
+        <!-- 视频列表区域 -->
+        <div id="video-section" style="display: none;" class="card">
+            <h3>🎬 选择分析视频</h3>
+            <div id="video-list" class="video-list"></div>
+            <div class="form-group" style="margin-top: 15px;">
+                <label for="threshold-value">阈值设置</label>
+                <input type="number" id="threshold-value" value="0.07" step="0.01" min="0" max="1">
+                <small class="form-text">用于IOD计算的阈值 (默认: 0.07)</small>
+            </div>
+            <button type="button" class="btn" id="analyze-btn" style="margin-top: 15px;" disabled>
+                开始分析
+            </button>
+        </div>
+
+        <!-- 分析结果区域 -->
+        <div id="result-section" style="display: none;" class="card">
+            <h3>📊 分析结果</h3>
+            <div id="result-content" style="margin-top: 15px;"></div>
+            <div id="chart-container" style="margin-top: 20px; text-align: center;"></div>
+        </div>
+
+        <!-- 批量分析区域 -->
+        <div id="batch-section" style="display: none;" class="card batch-card">
+            <h3>⚡ 批量分析所有视频</h3>
+            <p class="batch-desc">通过单视频分析选出合适的阈值之后，再一键分析所有文件夹中的所有视频文件</p>
+            <div class="form-group" style="margin-top: 15px;">
+                <label for="batch-threshold">批量分析阈值</label>
+                <input type="number" id="batch-threshold" value="0.07" step="0.01" min="0" max="1">
+                <small class="form-text">用于IOD计算的阈值 (默认: 0.07)</small>
+            </div>
+            <button type="button" class="btn btn-batch" id="batch-analyze-btn" style="margin-top: 15px;">
+                <span class="btn-text">开始批量分析</span>
+                <span class="spinner" style="display: none;"></span>
+            </button>
+        </div>
+
+        <!-- 批量分析进度区域 -->
+        <div id="batch-progress-section" style="display: none;" class="card">
+            <h3>⏳ 批量分析进度</h3>
+            <div id="batch-progress" style="margin-top: 15px;">
+                <div class="progress-bar-container">
+                    <div class="progress-bar" id="batch-progress-bar" style="width: 0%;"></div>
+                </div>
+                <p id="batch-progress-text">准备中...</p>
+            </div>
+        </div>
+
+        <!-- 批量分析结果区域 -->
+        <div id="batch-result-section" style="display: none;" class="card">
+            <h3>📊 批量分析结果</h3>
+            <div id="batch-result-content" style="margin-top: 15px;"></div>
+            <div style="margin-top: 20px; text-align: center;">
+                <button type="button" class="btn" id="download-btn" style="display: none;">
+                    📥 下载结果
+                </button>
+            </div>
+        </div>
+    </div>
+</div>
+{% endblock %}
+
+{% block extra_js %}
+<script>
+    // 使用次数限制配置
+    const IS_AUTHENTICATED = {{ is_authenticated|yesno:"true,false" }};
+    const HAS_USED = {{ has_used|yesno:"true,false" }};
+    const LOGIN_URL = "{% url 'login' %}";
+
+    // 全局状态
+    let selectedFolder = null;
+    let selectedVideo = null;
+    let currentThreshold = 0.07;
+    let allVideos = [];
+    let availableFolders = [];
+
+    // 显示提示信息
+    function showAlert(message, type = 'info') {
+        const container = document.getElementById('alert-container');
+        const alertDiv = document.createElement('div');
+        alertDiv.className = `alert alert-${type}`;
+        alertDiv.textContent = message;
+        container.appendChild(alertDiv);
+        setTimeout(() => alertDiv.remove(), 5000);
+    }
+
+    // 文件上传处理
+    async function handleUpload(e) {
+        e.preventDefault();
+        const formData = new FormData();
+        const fileInput = document.getElementById('zip-file');
+        
+        if (!fileInput.files[0]) {
+            showAlert('请选择ZIP文件', 'error');
+            return;
+        }
+
+        formData.append('zip_file', fileInput.files[0]);
+        
+        const btn = document.getElementById('upload-btn');
+        const btnText = btn.querySelector('.btn-text');
+        const spinner = btn.querySelector('.spinner');
+        
+        btn.disabled = true;
+        btnText.textContent = '上传中...';
+        spinner.style.display = 'inline-block';
+
+        try {
+            const response = await fetch('{% url "ros_iod:upload" %}', {
+                method: 'POST',
+                body: formData
+            });
+            const data = await response.json();
+
+            if (data.success) {
+                availableFolders = data.folders || [];
+                showAlert(`上传成功！发现 ${availableFolders.length} 个文件夹`, 'success');
+                renderFolderList(availableFolders);
+                document.getElementById('folder-section').style.display = 'block';
+                // 显示批量分析区域
+                document.getElementById('batch-section').style.display = 'block';
+                // 隐藏之前的结果
+                document.getElementById('video-section').style.display = 'none';
+                document.getElementById('result-section').style.display = 'none';
+                document.getElementById('batch-progress-section').style.display = 'none';
+                document.getElementById('batch-result-section').style.display = 'none';
+            } else {
+                showAlert('上传失败: ' + data.error, 'error');
+            }
+        } catch (error) {
+            showAlert('上传出错: ' + error.message, 'error');
+        } finally {
+            btn.disabled = false;
+            btnText.textContent = '上传文件';
+            spinner.style.display = 'none';
+        }
+    }
+
+    // 渲染文件夹列表（单选）
+    function renderFolderList(folders) {
+        const container = document.getElementById('folder-list');
+        if (folders.length === 0) {
+            container.innerHTML = '<p class="text-muted">未找到文件夹</p>';
+            return;
+        }
+
+        container.innerHTML = folders.map((folder, idx) => `
+            <div class="folder-item" data-folder="${folder}">
+                <input type="radio" name="folder-radio" class="folder-radio" 
+                       value="${folder}" id="folder-${idx}">
+                <label for="folder-${idx}">
+                    <span class="folder-icon">📁</span>
+                    <span class="folder-name">${folder}</span>
+                </label>
+            </div>
+        `).join('');
+
+        document.querySelectorAll('.folder-radio').forEach(radio => {
+            radio.addEventListener('change', updateSelectedFolder);
+        });
+    }
+
+    // 更新已选文件夹
+    function updateSelectedFolder() {
+        const selected = document.querySelector('.folder-radio:checked');
+        selectedFolder = selected ? selected.value : null;
+        document.getElementById('confirm-folders-btn').disabled = !selectedFolder;
+        
+        // 更新选中样式
+        document.querySelectorAll('.folder-item').forEach(item => {
+            item.classList.remove('selected');
+        });
+        if (selected) {
+            selected.closest('.folder-item').classList.add('selected');
+        }
+    }
+
+    // 确认文件夹选择
+    async function confirmFolders() {
+        if (!selectedFolder) {
+            showAlert('请选择一个文件夹', 'error');
+            return;
+        }
+
+        const btn = document.getElementById('confirm-folders-btn');
+        btn.disabled = true;
+        btn.textContent = '加载中...';
+
+        try {
+            const response = await fetch('{% url "ros_iod:select_folders" %}', {
+                method: 'POST',
+                headers: {'Content-Type': 'application/json'},
+                body: JSON.stringify({folders: [selectedFolder]})
+            });
+            const data = await response.json();
+
+            if (data.success) {
+                allVideos = data.all_videos || [];
+                renderVideoList(allVideos);
+                document.getElementById('video-section').style.display = 'block';
+                // 滚动到视频区域
+                document.getElementById('video-section').scrollIntoView({behavior: 'smooth'});
+                showAlert(`已加载 ${allVideos.length} 个视频文件`, 'success');
+            } else {
+                showAlert('获取视频列表失败: ' + data.error, 'error');
+            }
+        } catch (error) {
+            showAlert('请求出错: ' + error.message, 'error');
+        } finally {
+            btn.disabled = false;
+            btn.textContent = '确认选择';
+        }
+    }
+
+    // 渲染视频列表（单选）
+    function renderVideoList(videos) {
+        const container = document.getElementById('video-list');
+        if (videos.length === 0) {
+            container.innerHTML = '<p class="text-muted">未找到视频文件</p>';
+            return;
+        }
+
+        container.innerHTML = videos.map((video, idx) => {
+            const videoName = video.split('/').pop();
+            return `
+            <div class="video-item" data-video="${video}">
+                <input type="radio" name="video-radio" class="video-radio" 
+                       value="${video}" id="video-${idx}">
+                <label for="video-${idx}">
+                    <span class="video-icon">🎬</span>
+                    <span class="video-name">${videoName}</span>
+                </label>
+            </div>
+        `}).join('');
+
+        document.querySelectorAll('.video-radio').forEach(radio => {
+            radio.addEventListener('change', updateSelectedVideo);
+        });
+    }
+
+    // 更新已选视频
+    function updateSelectedVideo() {
+        const selected = document.querySelector('.video-radio:checked');
+        selectedVideo = selected ? selected.value : null;
+        document.getElementById('analyze-btn').disabled = !selectedVideo;
+        
+        // 更新选中样式
+        document.querySelectorAll('.video-item').forEach(item => {
+            item.classList.remove('selected');
+        });
+        if (selected) {
+            selected.closest('.video-item').classList.add('selected');
+        }
+    }
+
+    // 开始单视频分析
+    async function startAnalysis() {
+        if (!selectedVideo) {
+            showAlert('请选择一个视频', 'error');
+            return;
+        }
+
+        currentThreshold = parseFloat(document.getElementById('threshold-value').value) || 0.07;
+        const btn = document.getElementById('analyze-btn');
+        btn.disabled = true;
+        btn.innerHTML = '<span class="spinner" style="display: inline-block; margin-right: 8px;"></span>分析中...';
+
+        document.getElementById('result-section').style.display = 'block';
+        const resultContent = document.getElementById('result-content');
+        resultContent.innerHTML = '<div class="loading"><div class="spinner"></div><p>正在分析视频...</p></div>';
+        
+        // 滚动到结果区域
+        document.getElementById('result-section').scrollIntoView({behavior: 'smooth'});
+
+        try {
+            const response = await fetch('{% url "ros_iod:select_video" %}', {
+                method: 'POST',
+                headers: {'Content-Type': 'application/json'},
+                body: JSON.stringify({
+                    video: selectedVideo,
+                    threshold: currentThreshold
+                })
+            });
+            const data = await response.json();
+
+            if (data.success) {
+                showResult(data);
+            } else {
+                resultContent.innerHTML = '<p class="error">✗ 分析失败: ' + data.error + '</p>';
+                showAlert('分析失败: ' + data.error, 'error');
+            }
+        } catch (error) {
+            resultContent.innerHTML = '<p class="error">✗ 分析出错: ' + error.message + '</p>';
+            showAlert('分析出错: ' + error.message, 'error');
+        } finally {
+            btn.disabled = false;
+            btn.textContent = '开始分析';
+        }
+    }
+
+    // 显示分析结果
+    function showResult(data) {
+        const resultContent = document.getElementById('result-content');
+        const chartContainer = document.getElementById('chart-container');
+
+        // 构建视频信息表格
+        let videoInfoHtml = '';
+        if (data.video_info) {
+            const info = data.video_info;
+            videoInfoHtml = `
+                <div class="video-info-card">
+                    <h4>📹 视频信息</h4>
+                    <div class="info-grid">
+                        <div class="info-item">
+                            <span class="info-label">总帧数:</span>
+                            <span class="info-value">${info.total_frames || '-'}</span>
+                        </div>
+                        <div class="info-item">
+                            <span class="info-label">帧率:</span>
+                            <span class="info-value">${info.fps || '-'} fps</span>
+                        </div>
+                        <div class="info-item">
+                            <span class="info-label">时长:</span>
+                            <span class="info-value">${info.duration || '-'} 秒</span>
+                        </div>
+                        <div class="info-item">
+                            <span class="info-label">分析帧:</span>
+                            <span class="info-value">${data.analysis_frame || '-'}</span>
+                        </div>
+                        <div class="info-item">
+                            <span class="info-label">阈值:</span>
+                            <span class="info-value">${data.threshold || '-'}</span>
+                        </div>
+                    </div>
+                </div>
+            `;
+        }
+
+        if (data.main_chart) {
+            chartContainer.innerHTML = `
+                <img src="data:image/png;base64,${data.main_chart}" 
+                     style="max-width: 100%; border: 1px solid #ddd; border-radius: 4px;">
+            `;
+        }
+        resultContent.innerHTML = videoInfoHtml + '<p class="success">✓ 分析完成！</p>';
+    }
+
+    // 批量分析
+    async function startBatchAnalysis() {
+        // 检查使用次数限制
+        if (!IS_AUTHENTICATED && HAS_USED) {
+            showAlert('您已达到免费使用次数限制（1次），请登录后继续使用', 'error');
+            return;
+        }
+
+        const threshold = parseFloat(document.getElementById('batch-threshold').value) || 0.07;
+        
+        const btn = document.getElementById('batch-analyze-btn');
+        const btnText = btn.querySelector('.btn-text');
+        const spinner = btn.querySelector('.spinner');
+        
+        btn.disabled = true;
+        btnText.textContent = '分析中...';
+        spinner.style.display = 'inline-block';
+
+        document.getElementById('batch-progress-section').style.display = 'block';
+        document.getElementById('batch-result-section').style.display = 'none';
+        updateBatchProgress(10, '正在初始化批量分析...');
+
+        try {
+            const response = await fetch('{% url "ros_iod:select_all" %}', {
+                method: 'POST',
+                headers: {'Content-Type': 'application/json'},
+                body: JSON.stringify({threshold: threshold})
+            });
+            const data = await response.json();
+
+            if (data.success) {
+                updateBatchProgress(100, '分析完成！');
+                showBatchResult(data);
+                showAlert(data.message, 'success');
+                // 匿名用户首次使用后禁用按钮并提示
+                if (!IS_AUTHENTICATED) {
+                    document.getElementById('batch-analyze-btn').disabled = true;
+                    document.getElementById('batch-analyze-btn').querySelector('.btn-text').textContent = '已达到免费使用次数';
+                }
+            } else {
+                updateBatchProgress(0, '分析失败');
+                let errorMsg = data.error || '未知错误';
+                if (response.status === 403 || errorMsg.includes('使用次数限制')) {
+                    errorMsg = '您已达到免费使用次数限制（1次），请<a href="' + LOGIN_URL + '" style="color: #667eea; font-weight: bold;">登录</a>后继续使用';
+                }
+                document.getElementById('batch-result-content').innerHTML =
+                    `<div class="error">${errorMsg}</div>`;
+                showAlert(errorMsg.replace(/<[^>]*>/g, ''), 'error');
+            }
+        } catch (error) {
+            updateBatchProgress(0, '分析出错');
+            showAlert('批量分析出错: ' + error.message, 'error');
+        } finally {
+            btn.disabled = false;
+            btnText.textContent = '开始批量分析';
+            spinner.style.display = 'none';
+        }
+    }
+
+    // 更新批量分析进度
+    function updateBatchProgress(percent, text) {
+        document.getElementById('batch-progress-bar').style.width = percent + '%';
+        document.getElementById('batch-progress-text').textContent = text;
+    }
+
+    // 显示批量分析结果
+    function showBatchResult(data) {
+        const resultContent = document.getElementById('batch-result-content');
+        const downloadBtn = document.getElementById('download-btn');
+
+        resultContent.innerHTML = `
+            <div class="batch-result">
+                <p class="success">✓ ${data.message}</p>
+                <div class="batch-stats">
+                    <div class="stat-item">
+                        <span class="stat-label">总视频数:</span>
+                        <span class="stat-value">${data.total_videos || 0}</span>
+                    </div>
+                    <div class="stat-item">
+                        <span class="stat-label">完成文件夹:</span>
+                        <span class="stat-value">${data.completed_folders || 0}</span>
+                    </div>
+                    <div class="stat-item">
+                        <span class="stat-label">成功分析:</span>
+                        <span class="stat-value">${data.success_count || 0}</span>
+                    </div>
+                </div>
+            </div>
+        `;
+        
+        downloadBtn.style.display = 'inline-block';
+        document.getElementById('batch-result-section').style.display = 'block';
+        document.getElementById('batch-result-section').scrollIntoView({behavior: 'smooth'});
+    }
+
+    // 下载结果
+    async function downloadResults() {
+        try {
+            const response = await fetch('{% url "ros_iod:download" %}', {
+                method: 'POST',
+                headers: {'Content-Type': 'application/json'}
+            });
+            
+            if (response.ok) {
+                const blob = await response.blob();
+                const url = window.URL.createObjectURL(blob);
+                const a = document.createElement('a');
+                a.href = url;
+                a.download = 'ros_iod_results.zip';
+                document.body.appendChild(a);
+                a.click();
+                window.URL.revokeObjectURL(url);
+                document.body.removeChild(a);
+                showAlert('下载开始！', 'success');
+            } else {
+                const data = await response.json();
+                showAlert('下载失败: ' + (data.error || '未知错误'), 'error');
+            }
+        } catch (error) {
+            showAlert('下载出错: ' + error.message, 'error');
+        }
+    }
+
+    // 事件绑定
+    document.addEventListener('DOMContentLoaded', function() {
+        const uploadForm = document.getElementById('upload-form');
+        if (uploadForm) {
+            uploadForm.addEventListener('submit', function(e) {
+                e.preventDefault();
+                e.stopPropagation();
+                handleUpload(e);
+                return false;
+            });
+        }
+        document.getElementById('confirm-folders-btn').addEventListener('click', confirmFolders);
+        document.getElementById('analyze-btn').addEventListener('click', startAnalysis);
+        document.getElementById('batch-analyze-btn').addEventListener('click', startBatchAnalysis);
+        document.getElementById('download-btn').addEventListener('click', downloadResults);
+    });
+</script>
+
+<style>
+    .header-with-back {
+        display: flex;
+        justify-content: space-between;
+        align-items: center;
+        margin-bottom: 20px;
+    }
+    
+    .upload-card {
+        background: linear-gradient(135deg, #f8f9fa 0%, #e9ecef 100%);
+        border-left: 4px solid #667eea;
+    }
+    
+    .folder-list, .video-list {
+        display: flex;
+        flex-direction: column;
+        gap: 8px;
+        margin-top: 15px;
+        max-height: 300px;
+        overflow-y: auto;
+    }
+    
+    .folder-item, .video-item {
+        display: flex;
+        align-items: center;
+        padding: 12px 15px;
+        border: 2px solid #e9ecef;
+        border-radius: 8px;
+        background: #fff;
+        transition: all 0.2s ease;
+        cursor: pointer;
+    }
+    
+    .folder-item:hover, .video-item:hover {
+        border-color: #667eea;
+        background: #f8f9ff;
+        transform: translateX(4px);
+    }
+    
+    .folder-item.selected, .video-item.selected {
+        border-color: #667eea;
+        background: #eef2ff;
+        box-shadow: 0 0 0 3px rgba(102, 126, 234, 0.1);
+    }
+    
+    .folder-item input[type="radio"], .video-item input[type="radio"] {
+        margin-right: 12px;
+        width: 20px;
+        height: 20px;
+        cursor: pointer;
+        accent-color: #667eea;
+    }
+    
+    .folder-item label, .video-item label {
+        cursor: pointer;
+        flex: 1;
+        display: flex;
+        align-items: center;
+        gap: 10px;
+        margin: 0;
+        font-weight: 500;
+    }
+    
+    .folder-icon, .video-icon {
+        font-size: 20px;
+    }
+    
+    .folder-name, .video-name {
+        font-size: 14px;
+        color: #333;
+    }
+    
+    .text-muted {
+        color: #6c757d;
+        font-style: italic;
+        text-align: center;
+        padding: 20px;
+    }
+    
+    .loading {
+        display: flex;
+        flex-direction: column;
+        align-items: center;
+        padding: 40px;
+        color: #667eea;
+    }
+    
+    .loading .spinner {
+        width: 40px;
+        height: 40px;
+        border: 4px solid #e9ecef;
+        border-top-color: #667eea;
+        border-radius: 50%;
+        animation: spin 1s linear infinite;
+        margin-bottom: 15px;
+    }
+    
+    @keyframes spin {
+        to { transform: rotate(360deg); }
+    }
+    
+    .success {
+        color: #155724;
+        font-weight: bold;
+        text-align: center;
+        padding: 15px;
+        background: #d4edda;
+        border-radius: 4px;
+    }
+    
+    .error {
+        color: #721c24;
+        font-weight: bold;
+        text-align: center;
+        padding: 15px;
+        background: #f8d7da;
+        border-radius: 4px;
+    }
+    
+    .btn:disabled {
+        opacity: 0.6;
+        cursor: not-allowed;
+    }
+    
+    /* 自定义滚动条 */
+    .folder-list::-webkit-scrollbar,
+    .video-list::-webkit-scrollbar {
+        width: 8px;
+    }
+    
+    .folder-list::-webkit-scrollbar-track,
+    .video-list::-webkit-scrollbar-track {
+        background: #f1f1f1;
+        border-radius: 4px;
+    }
+    
+    .folder-list::-webkit-scrollbar-thumb,
+    .video-list::-webkit-scrollbar-thumb {
+        background: #c1c1c1;
+        border-radius: 4px;
+    }
+    
+    .folder-list::-webkit-scrollbar-thumb:hover,
+    .video-list::-webkit-scrollbar-thumb:hover {
+        background: #a8a8a8;
+    }
+    
+    /* 批量分析区域样式 */
+    .batch-card {
+        background: linear-gradient(135deg, #fff9e6 0%, #fff3cd 100%);
+        border-left: 4px solid #ffc107;
+    }
+    
+    .batch-desc {
+        color: #856404;
+        margin: 5px 0 0 0;
+        font-size: 14px;
+    }
+    
+    .btn-batch {
+        background: linear-gradient(135deg, #ffc107 0%, #ff9800 100%);
+        color: #212529;
+        font-weight: 600;
+    }
+    
+    .btn-batch:hover {
+        background: linear-gradient(135deg, #e0a800 0%, #f57c00 100%);
+    }
+    
+    .progress-bar-container {
+        width: 100%;
+        height: 24px;
+        background-color: #e9ecef;
+        border-radius: 12px;
+        overflow: hidden;
+        margin-bottom: 10px;
+        box-shadow: inset 0 2px 4px rgba(0,0,0,0.1);
+    }
+    
+    .progress-bar {
+        height: 100%;
+        background: linear-gradient(90deg, #667eea 0%, #764ba2 100%);
+        transition: width 0.5s ease;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        color: white;
+        font-size: 12px;
+        font-weight: bold;
+    }
+    
+    .batch-stats {
+        display: grid;
+        grid-template-columns: repeat(3, 1fr);
+        gap: 15px;
+        margin-top: 20px;
+    }
+    
+    .stat-item {
+        background: #f8f9fa;
+        padding: 15px;
+        border-radius: 8px;
+        text-align: center;
+        border: 1px solid #e9ecef;
+    }
+    
+    .stat-label {
+        display: block;
+        color: #6c757d;
+        font-size: 12px;
+        margin-bottom: 5px;
+    }
+    
+    .stat-value {
+        display: block;
+        color: #333;
+        font-size: 24px;
+        font-weight: bold;
+        color: #667eea;
+    }
+    
+    .batch-result {
+        background: #f8f9fa;
+        padding: 20px;
+        border-radius: 8px;
+        border-left: 4px solid #28a745;
+    }
+    
+    /* 视频信息卡片样式 */
+    .video-info-card {
+        background: linear-gradient(135deg, #e3f2fd 0%, #bbdefb 100%);
+        border-left: 4px solid #2196f3;
+        border-radius: 8px;
+        padding: 20px;
+        margin-bottom: 20px;
+    }
+    
+    .video-info-card h4 {
+        margin: 0 0 15px 0;
+        color: #1565c0;
+        font-size: 16px;
+    }
+    
+    .info-grid {
+        display: grid;
+        grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
+        gap: 12px;
+    }
+    
+    .info-item {
+        background: rgba(255, 255, 255, 0.7);
+        padding: 10px 15px;
+        border-radius: 6px;
+        display: flex;
+        flex-direction: column;
+    }
+    
+    .info-label {
+        font-size: 12px;
+        color: #666;
+        margin-bottom: 4px;
+    }
+    
+    .info-value {
+        font-size: 16px;
+        font-weight: bold;
+        color: #333;
+    }
+</style>
+{% endblock %}

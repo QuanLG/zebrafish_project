@@ -1,0 +1,61 @@
+{% extends "base.html" %}
+
+{% block title %}斑马鱼分析系统 - 首页{% endblock %}
+
+{% block content %}
+<div class="card">
+    <h2>欢迎使用斑马鱼分析系统</h2>
+    <p style="font-size: 16px; margin: 20px 0;">
+        本系统提供三个主要分析工具，请选择您需要使用的功能：
+    </p>
+</div>
+
+<div class="grid grid-3">
+    <div class="card" style="text-align: center;">
+        <h3 style="font-size: 48px; margin-bottom: 15px;">⚡</h3>
+        <h2>ROS IOD 分析</h2>
+        <p style="color: #666; margin: 15px 0;">
+            斑马鱼ROS荧光视频分析工具，支持IOD值计算和视频帧分析
+        </p>
+        <a href="{% url 'ros_iod:index' %}" class="btn">开始使用</a>
+    </div>
+    <div class="card" style="text-align: center;">
+        <h3 style="font-size: 48px; margin-bottom: 15px;">📊</h3>
+        <h2>多指标统计作图</h2>
+        <p style="color: #666; margin: 15px 0;">
+            上传Excel数据文件，进行多指标统计分析，生成柱状图、散点图等可视化图表
+        </p>
+        <a href="{% url 'multi_stats:index' %}" class="btn">开始使用</a>
+    </div>
+
+    <div class="card" style="text-align: center;">
+        <h3 style="font-size: 48px; margin-bottom: 15px;">🧪</h3>
+        <h2>抗氧化报告</h2>
+        <p style="color: #666; margin: 15px 0;">
+            斑马鱼抗氧化实验报告生成工具，支持ROS数据分析和结论生成
+        </p>
+        <a href="{% url 'antioxidant_report:index' %}" class="btn">开始使用</a>
+    </div>
+
+    <div class="card" style="text-align: center;">
+        <h3 style="font-size: 48px; margin-bottom: 15px;">🔬</h3>
+        <h2>抗肿瘤荧光报告</h2>
+        <p style="color: #666; margin: 15px 0;">
+            斑马鱼抗肿瘤荧光实验报告生成工具，支持IOD和面积统计分析
+        </p>
+        <a href="{% url 'tumor_report:index' %}" class="btn">开始使用</a>
+    </div>
+
+
+</div>
+
+<div class="card" style="margin-top: 30px;">
+    <h3>使用说明</h3>
+    <ul style="margin-left: 20px; line-height: 2;">
+                <li><strong>ROS IOD 分析</strong>：上传包含ROS荧光视频的ZIP压缩包，选择视频进行IOD值计算和可视化分析</li>
+        <li><strong>多指标统计作图</strong>：支持上传xlsx格式的Excel文件，选择分组字段和数值字段后自动生成统计图表</li>
+        <li><strong>抗氧化报告</strong>：上传包含ROS实验结果的ZIP压缩包，自动进行统计分析并生成报告</li>
+        <li><strong>抗肿瘤荧光报告</strong>：上传包含肿瘤荧光实验结果的ZIP压缩包，支持IOD值和目标区域面积分析</li>
+    </ul>
+</div>
+{% endblock %}

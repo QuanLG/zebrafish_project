@@ -1,0 +1,764 @@
+{% extends "base.html" %}
+{% load static %}
+
+{% block title %}多指标统计作图 (Vue版) - 斑马鱼分析系统{% endblock %}
+
+{% block extra_css %}
+{{ block.super }}
+<style>
+    .vue-app { font-family: Arial, sans-serif; }
+    .loading-spinner {
+        display: inline-block;
+        width: 20px;
+        height: 20px;
+        border: 3px solid rgba(0,0,0,0.1);
+        border-radius: 50%;
+        border-top-color: #007bff;
+        animation: spin 1s ease-in-out infinite;
+        margin-right: 10px;
+    }
+    @keyframes spin {
+        to { transform: rotate(360deg); }
+    }
+    .alert { padding: 12px 16px; border-radius: 4px; margin: 10px 0; }
+    .alert-success { background: #d4edda; color: #155724; border: 1px solid #c3e6cb; }
+    .alert-error { background: #f8d7da; color: #721c24; border: 1px solid #f5c6cb; }
+    .alert-info { background: #d1ecf1; color: #0c5460; border: 1px solid #bee5eb; }
+    .color-preview { display: flex; gap: 4px; margin-top: 8px; }
+    .color-box { width: 24px; height: 24px; border-radius: 3px; }
+    .chart-tabs { margin-top: 15px; }
+    .chart-tabs-nav { display: flex; flex-wrap: wrap; gap: 8px; margin-bottom: 15px; }
+    .chart-tab-btn {
+        padding: 8px 16px;
+        border: 1px solid #ddd;
+        background: #f8f9fa;
+        cursor: pointer;
+        border-radius: 4px;
+        transition: all 0.2s;
+    }
+    .chart-tab-btn:hover { background: #e9ecef; }
+    .chart-tab-btn.active { background: #007bff; color: white; border-color: #007bff; }
+    .chart-tab-panel { display: none; }
+    .chart-tab-panel.active { display: block; }
+    .chart-img-wrapper { margin: 15px 0; }
+    .chart-img-wrapper img { max-width: 100%; height: auto; }
+    .chart-stats-summary { margin-top: 20px; }
+    .stats-mini-table, .stats-table { width: 100%; border-collapse: collapse; margin: 10px 0; }
+    .stats-mini-table th, .stats-table th, .stats-mini-table td, .stats-table td {
+        padding: 8px 12px;
+        border: 1px solid #ddd;
+        text-align: left;
+    }
+    .stats-mini-table th, .stats-table th { background: #f8f9fa; font-weight: 600; }
+</style>
+{% endblock %}
+
+{% block content %}
+<div class="vue-app" id="app">
+    <div class="card">
+        <h2>📊 多指标统计作图工具 (Vue版)</h2>
+
+        <div v-if="alertMessage" :class="['alert', 'alert-' + alertType]">${ alertMessage }</div>
+
+        <div v-if="!IS_AUTHENTICATED && !HAS_USED" class="alert alert-info" style="margin-bottom: 15px;">
+            💡 您有 <strong>1 次</strong> 免费使用机会，
+            <a href="{% url 'login' %}" style="color: #667eea; font-weight: bold;">登录</a> 后可不限次数使用。
+        </div>
+        <div v-if="!IS_AUTHENTICATED && HAS_USED" class="alert alert-warning" style="margin-bottom: 15px;">
+            ⚠ 您已达到免费使用次数，请
+            <a href="{% url 'login' %}" style="color: #667eea; font-weight: bold;">登录</a> 后继续使用。
+        </div>
+
+        <div class="card" style="background-color: #f8f9fa;">
+            <h3>📁 文件上传</h3>
+            <form @submit.prevent="handleUpload">
+                <div class="form-group">
+                    <label for="excel-file">请上传Excel文件 (.xlsx)</label>
+                    <input type="file" id="excel-file" ref="fileInput" accept=".xlsx" required>
+                </div>
+                <button type="submit" class="btn" :disabled="uploading">
+                    <span v-if="uploading" class="loading-spinner"></span>
+                    [[ uploading ? '上传中...' : '上传文件' ]]
+                </button>
+            </form>
+            <div v-if="uploadResult" v-html="uploadResult" style="margin-top: 15px;"></div>
+        </div>
+
+        <div v-if="showDataSection" style="display: block;">
+            <div class="card">
+                <h3>🔧 样本编辑</h3>
+                <p class="info-text">💡 勾选"使用"列来包含样本，取消勾选则排除样本</p>
+                <div v-html="sampleFilterHtml"></div>
+                <div v-if="validCount !== null" style="margin-top: 10px;">
+                    <div class="alert alert-success">当前有效样本数: ${ validCount }</div>
+                </div>
+            </div>
+
+            <div class="card">
+                <h3>📌 字段选择</h3>
+                <div class="form-group">
+                    <label for="group-column">选择分组字段（用于生成比较组）</label>
+                    <select id="group-column" v-model="groupColumn" @change="handleGroupColumnChange">
+                        <option v-for="col in columns" :key="col" :value="col">${ col }</option>
+                    </select>
+                </div>
+                <div v-if="showComparisonSection" style="display: block;">
+                    <div class="form-group">
+                        <label>比较组设置</label>
+                        <div id="unique-groups">${ uniqueGroupsText }</div>
+                        <div style="margin-top: 10px;">
+                            <input type="checkbox" id="select-all-comparisons" v-model="selectAllComparisons" @change="handleSelectAllComparisons">
+                            <label for="select-all-comparisons">全选所有比较组</label>
+                        </div>
+                        <div id="comparison-groups" style="margin-top: 10px;">
+                            <div v-for="cg in comparisonGroups" :key="cg" class="checkbox-wrapper">
+                                <input type="checkbox" :id="'cg-' + cg" :value="cg" v-model="selectedComparisonGroups" @change="updateGenerateButton">
+                                <label :for="'cg-' + cg">${ cg }</label>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <div class="card">
+                <h3>📐 统计检验方式</h3>
+                <div class="form-group">
+                    <label for="test-method">选择统计检验方法</label>
+                    <select id="test-method" v-model="config.test_method">
+                        <option value="T检验 (ttest_ind)">T检验 (ttest_ind)</option>
+                        <option value="秩和检验 (mannwhitneyu)">秩和检验 (mannwhitneyu)</option>
+                    </select>
+                </div>
+            </div>
+
+            <div class="card">
+                <h3>📊 分析字段选择</h3>
+                <div id="numeric-fields-count">数值字段: ${ numericColumns.length } 个</div>
+                <div style="margin-top: 10px;">
+                    <input type="checkbox" id="select-all-fields" v-model="selectAllFields" @change="handleSelectAllFields">
+                    <label for="select-all-fields">全选所有数值字段</label>
+                </div>
+                <div id="numeric-fields" style="margin-top: 10px;">
+                    <div v-for="field in numericColumns" :key="field" class="checkbox-wrapper">
+                        <input type="checkbox" :id="'field-' + field" :value="field" v-model="selectedFields" @change="updateGenerateButton">
+                        <label :for="'field-' + field">${ field }</label>
+                    </div>
+                </div>
+            </div>
+
+            <div class="card">
+                <h3>🎨 图表样式设置</h3>
+                <div class="grid grid-2">
+                    <div class="form-group">
+                        <label for="color-palette">选择颜色方案</label>
+                        <select id="color-palette" v-model="config.selected_palette" @change="initColorPreview">
+                            {% for palette in palettes %}
+                            <option value="{{ palette }}">{{ palette }}</option>
+                            {% endfor %}
+                        </select>
+                        <div id="color-preview" class="color-preview">
+                            <div v-for="color in colorPreview" :key="color" class="color-box" :style="{ backgroundColor: color }"></div>
+                        </div>
+                    </div>
+                    <div class="form-group">
+                        <label for="chart-type">选择图表类型</label>
+                        <select id="chart-type" v-model="config.chart_type">
+                            {% for chart in chart_types %}
+                            <option value="{{ chart }}">{{ chart }}</option>
+                            {% endfor %}
+                        </select>
+                    </div>
+                </div>
+
+                <h3 style="margin-top: 20px;">📐 图表尺寸设置</h3>
+                <div class="grid grid-2">
+                    <div class="form-group">
+                        <label for="fig-width">单图宽度</label>
+                        <input type="range" id="fig-width" v-model.number="config.fig_width" min="3" max="15" step="0.5">
+                        <span>${ config.fig_width }</span>
+                    </div>
+                    <div class="form-group">
+                        <label for="fig-height">单图高度</label>
+                        <input type="range" id="fig-height" v-model.number="config.fig_height" min="3" max="15" step="0.5">
+                        <span>${ config.fig_height }</span>
+                    </div>
+                    <div class="form-group">
+                        <label for="group-spacing">组间距</label>
+                        <input type="range" id="group-spacing" v-model.number="config.group_spacing" min="0.5" max="2.0" step="0.1">
+                        <span>${ config.group_spacing }</span>
+                    </div>
+                    <div class="form-group">
+                        <label for="bar-width">柱子宽度</label>
+                        <input type="range" id="bar-width" v-model.number="config.bar_width" min="0.3" max="1.0" step="0.05">
+                        <span>${ config.bar_width }</span>
+                    </div>
+                    <div class="form-group">
+                        <label for="line-width">线宽</label>
+                        <input type="range" id="line-width" v-model.number="config.line_width" min="1.0" max="5.0" step="0.1">
+                        <span>${ config.line_width }</span>
+                    </div>
+                    <div class="form-group">
+                        <label for="low-alpha">柱子透明度</label>
+                        <input type="range" id="low-alpha" v-model.number="config.low_alpha" min="0.0" max="1.0" step="0.1">
+                        <span>${ config.low_alpha }</span>
+                    </div>
+                    <div class="form-group">
+                        <label for="point-size">点图点大小</label>
+                        <input type="range" id="point-size" v-model.number="config.point_size" min="5" max="50" step="5">
+                        <span>${ config.point_size }</span>
+                    </div>
+                </div>
+
+                <div style="margin-top: 15px;">
+                    <div class="checkbox-wrapper">
+                        <input type="checkbox" id="show-title" v-model="config.show_title">
+                        <label for="show-title">显示图表标题</label>
+                    </div>
+                    <div class="checkbox-wrapper">
+                        <input type="checkbox" id="show-legend" v-model="config.show_legend">
+                        <label for="show-legend">显示图例</label>
+                    </div>
+                    <div class="checkbox-wrapper">
+                        <input type="checkbox" id="show-grid" v-model="config.show_grid">
+                        <label for="show-grid">显示网格</label>
+                    </div>
+                </div>
+            </div>
+
+            <div class="card">
+                <h3>📈 数据可视化</h3>
+                <button id="generate-chart" class="btn" @click="generateChart" :disabled="!canGenerate">
+                    [[ generatingChart ? '生成中...' : '生成图表' ]]
+                </button>
+                <div v-if="generateHint" style="margin-top: 10px; color: #666; font-size: 14px;" :style="{ color: generateHintColor }">
+                    ${ generateHint }
+                </div>
+                <div v-if="chartResult" v-html="chartResult" style="margin-top: 20px;"></div>
+            </div>
+
+            <div v-if="showChartGallery" class="card" style="display: block;">
+                <h3>📊 图表展示 <span id="chart-gallery-count">(${ fieldCount } 个指标)</span></h3>
+                <div class="chart-tabs">
+                    <div class="chart-tabs-nav">
+                        <button v-for="(field, idx) in chartFields" :key="field"
+                                :class="['chart-tab-btn', { active: activeTab === idx }]"
+                                @click="activeTab = idx">
+                            ${ field }
+                        </button>
+                    </div>
+                    <div class="chart-tabs-content">
+                        <div v-for="(field, idx) in chartFields" :key="field"
+                             :class="['chart-tab-panel', { active: activeTab === idx }]"
+                             :id="'tab-panel-' + idx">
+                            <div class="chart-img-wrapper">
+                                <img :src="'data:image/png;base64,' + individualCharts[field]" :alt="field">
+                            </div>
+                            <div class="chart-stats-summary">
+                                <h4>${ field } - 统计摘要</h4>
+                                <div v-html="getFieldStatsSummary(field)"></div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+                <div class="chart-fullview" style="margin-top: 20px;">
+                    <h4>组合图表 (全部指标)</h4>
+                    <div style="overflow-x: auto;">
+                        <img :src="'data:image/png;base64,' + mainChart" style="max-width: 100%;">
+                    </div>
+                </div>
+            </div>
+
+            <div v-if="showDownloadSection" class="card" style="display: block;">
+                <h3>📥 图片下载</h3>
+                <div class="grid grid-2">
+                    <div class="form-group">
+                        <label>选择下载格式</label>
+                        <div>
+                            <input type="radio" name="download-format" value="png" v-model="downloadFormat"> PNG
+                            <input type="radio" name="download-format" value="pdf" v-model="downloadFormat"> PDF
+                            <input type="radio" name="download-format" value="svg" v-model="downloadFormat"> SVG
+                        </div>
+                    </div>
+                    <div class="form-group">
+                        <label for="download-dpi">图片DPI</label>
+                        <input type="range" id="download-dpi" v-model.number="downloadDpi" min="72" max="600" step="1">
+                        <span>${ downloadDpi }</span>
+                    </div>
+                </div>
+                <button class="btn" @click="downloadCharts">下载全部图片</button>
+            </div>
+
+            <div v-if="showStatsSection" class="card" style="display: block;">
+                <h3>📊 统计详情</h3>
+                <div v-html="statsDetailsHtml"></div>
+            </div>
+        </div>
+    </div>
+</div>
+{% endblock %}
+
+{% block extra_js %}
+{{ block.super }}
+<script src="https://unpkg.com/vue@3/dist/vue.global.js"></script>
+<script>
+const { createApp, ref, computed, watch, onMounted, nextTick } = Vue;
+
+createApp({
+    delimiters: ['${', ']]'],
+    setup() {
+        const IS_AUTHENTICATED = {{ is_authenticated|yesno:"true,false" }};
+        const HAS_USED = {{ has_used|yesno:"true,false" }};
+
+        // 颜色方案配置
+        const COLOR_PALETTES = {
+            'default_color': ['#FF0000', '#0000FF', '#AD07E3', '#008000', '#CE0665', '#0F99B2', '#C5944E', '#FF6000'],
+            'gray_black': ['#333333', '#666666', '#999999', '#CCCCCC'],
+            'Set1': ['#e41a1c', '#377eb8', '#4daf4a', '#984ea3', '#ff7f00', '#ffff33', '#a65628', '#f781bf'],
+            'Set2': ['#66c2a5', '#fc8d62', '#8da0cb', '#e78ac3', '#a6d854', '#ffd92f', '#e5c494', '#b3b3b3'],
+            'tab10': ['#1f77b4', '#ff7f0e', '#2ca02c', '#d62728', '#9467bd', '#8c564b', '#e377c2', '#7f7f7f'],
+        };
+
+        // 响应式数据
+        const dfData = ref(null);
+        const columns = ref([]);
+        const numericColumns = ref([]);
+        const selectedFields = ref([]);
+        const selectedComparisonGroups = ref([]);
+        const allStats = ref(null);
+
+        // UI状态
+        const uploading = ref(false);
+        const uploadResult = ref('');
+        const showDataSection = ref(false);
+        const sampleFilterHtml = ref('');
+        const validCount = ref(null);
+        const groupColumn = ref('');
+        const showComparisonSection = ref(false);
+        const uniqueGroupsText = ref('');
+        const comparisonGroups = ref([]);
+        const selectAllComparisons = ref(false);
+        const selectAllFields = ref(false);
+        const colorPreview = ref([]);
+        const generatingChart = ref(false);
+        const chartResult = ref('');
+        const generateHint = ref('提示：需要选择至少一个比较组和至少一个数值字段才能生成图表');
+        const generateHintColor = ref('#dc3545');
+
+        // 图表数据
+        const showChartGallery = ref(false);
+        const chartFields = ref([]);
+        const individualCharts = ref({});
+        const mainChart = ref('');
+        const activeTab = ref(0);
+        const fieldCount = ref(0);
+        const showDownloadSection = ref(false);
+        const showStatsSection = ref(false);
+        const statsDetailsHtml = ref('');
+
+        // 下载配置
+        const downloadFormat = ref('png');
+        const downloadDpi = ref(300);
+
+        // 图表配置
+        const config = ref({
+            test_method: 'T检验 (ttest_ind)',
+            chart_type: '柱状图',
+            selected_palette: 'default_color',
+            fig_width: 5,
+            fig_height: 4,
+            group_spacing: 1.0,
+            bar_width: 0.6,
+            line_width: 2.5,
+            low_alpha: 0.4,
+            point_size: 10,
+            show_title: true,
+            show_legend: true,
+            show_grid: true
+        });
+
+        // 提示信息
+        const alertMessage = ref('');
+        const alertType = ref('info');
+
+        // 计算属性
+        const canGenerate = computed(() => {
+            if (!IS_AUTHENTICATED && HAS_USED) return false;
+            return selectedComparisonGroups.value.length > 0 && selectedFields.value.length > 0 && !generatingChart.value;
+        });
+
+        // 方法
+        function showAlert(message, type = 'info') {
+            alertMessage.value = message;
+            alertType.value = type;
+            setTimeout(() => {
+                alertMessage.value = '';
+            }, 5000);
+        }
+
+        function initColorPreview() {
+            const palette = config.value.selected_palette;
+            colorPreview.value = COLOR_PALETTES[palette] || COLOR_PALETTES['default_color'];
+        }
+
+        async function handleUpload() {
+            const fileInput = document.getElementById('excel-file');
+            if (!fileInput.files.length) return;
+
+            uploading.value = true;
+            const formData = new FormData();
+            formData.append('excel_file', fileInput.files[0]);
+
+            try {
+                const response = await fetch('{% url "multi_stats:upload" %}', {
+                    method: 'POST',
+                    body: formData
+                });
+                const data = await response.json();
+
+                if (data.success) {
+                    dfData.value = data;
+                    numericColumns.value = data.numeric_columns;
+                    columns.value = data.columns;
+
+                    uploadResult.value = `<div class="alert alert-success">✅ 文件上传成功: ${fileInput.files[0].name}<br>📋 原始数据: ${data.shape.rows} 行 × ${data.shape.cols} 列</div>`;
+
+                    showDataSection.value = true;
+                    renderSampleFilter();
+
+                    // 自动触发分组字段change事件
+                    await nextTick();
+                    if (groupColumn.value) {
+                        handleGroupColumnChange();
+                    }
+                } else {
+                    showAlert('上传失败: ' + data.error, 'error');
+                }
+            } catch (error) {
+                showAlert('上传出错: ' + error.message, 'error');
+            } finally {
+                uploading.value = false;
+            }
+        }
+
+        async function renderSampleFilter() {
+            try {
+                const response = await fetch('{% url "multi_stats:sample_data" %}', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({})
+                });
+                const data = await response.json();
+
+                if (data.success) {
+                    const cols = data.columns || [];
+                    let html = '<table><thead><tr><th>使用</th>';
+                    cols.forEach(col => {
+                        html += `<th>${col}</th>`;
+                    });
+                    html += '</tr></thead><tbody>';
+
+                    data.data.forEach((row, idx) => {
+                        const isUsed = data.use_flags[idx] === 1;
+                        html += '<tr>';
+                        html += `<td><input type="checkbox" class="sample-checkbox" data-idx="${idx}" ${isUsed ? 'checked' : ''} @change="updateSampleFilter"></td>`;
+                        cols.forEach(col => {
+                            html += `<td>${row[col] ?? ''}</td>`;
+                        });
+                        html += '</tr>';
+                    });
+                    html += '</tbody></table>';
+                    sampleFilterHtml.value = html;
+
+                    await nextTick();
+                    document.querySelectorAll('.sample-checkbox').forEach(cb => {
+                        cb.addEventListener('change', updateSampleFilter);
+                    });
+                }
+            } catch (error) {
+                showAlert('获取样本数据失败: ' + error.message, 'error');
+            }
+        }
+
+        async function updateSampleFilter() {
+            const useFlags = {};
+            document.querySelectorAll('.sample-checkbox').forEach(cb => {
+                useFlags[cb.dataset.idx] = cb.checked;
+            });
+
+            try {
+                const response = await fetch('{% url "multi_stats:update_filter" %}', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ use_flags: useFlags })
+                });
+                const data = await response.json();
+                if (data.success) {
+                    validCount.value = data.valid_count;
+                }
+            } catch (error) {
+                console.error('Update filter error:', error);
+            }
+        }
+
+        async function handleGroupColumnChange() {
+            if (!groupColumn.value) return;
+
+            try {
+                const response = await fetch('{% url "multi_stats:comparison_groups" %}', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ group_column: groupColumn.value })
+                });
+                const data = await response.json();
+
+                if (data.success) {
+                    uniqueGroupsText.value = `分组唯一值 (${data.unique_groups.length} 个): ${data.unique_groups.slice(0, 5).join(', ')}${data.unique_groups.length > 5 ? '...' : ''}`;
+                    comparisonGroups.value = data.comparison_groups;
+                    showComparisonSection.value = true;
+
+                    selectedComparisonGroups.value = [];
+                    selectedFields.value = [];
+                    updateGenerateButton();
+                    initColorPreview();
+                } else {
+                    showAlert('获取比较组失败: ' + data.error, 'error');
+                }
+            } catch (error) {
+                showAlert('获取比较组失败: ' + error.message, 'error');
+            }
+        }
+
+        function handleSelectAllComparisons() {
+            if (selectAllComparisons.value) {
+                selectedComparisonGroups.value = [...comparisonGroups.value];
+            } else {
+                selectedComparisonGroups.value = [];
+            }
+            updateGenerateButton();
+        }
+
+        function handleSelectAllFields() {
+            if (selectAllFields.value) {
+                selectedFields.value = [...numericColumns.value];
+            } else {
+                selectedFields.value = [];
+            }
+            updateGenerateButton();
+        }
+
+        function updateGenerateButton() {
+            // 匿名用户已达到使用限制
+            if (!IS_AUTHENTICATED && HAS_USED) {
+                generateHint.value = '您已达到免费使用次数限制，请登录后继续使用';
+                generateHintColor.value = '#dc3545';
+                return;
+            }
+
+            const hasComparisons = selectedComparisonGroups.value.length > 0;
+            const hasFields = selectedFields.value.length > 0;
+
+            if (!hasComparisons && !hasFields) {
+                generateHint.value = '提示：需要选择至少一个比较组和至少一个数值字段才能生成图表';
+                generateHintColor.value = '#dc3545';
+            } else if (!hasComparisons) {
+                generateHint.value = '提示：请选择至少一个比较组';
+                generateHintColor.value = '#dc3545';
+            } else if (!hasFields) {
+                generateHint.value = '提示：请选择至少一个数值字段';
+                generateHintColor.value = '#dc3545';
+            } else {
+                generateHint.value = '✓ 已准备好生成图表';
+                generateHintColor.value = '#28a745';
+            }
+        }
+
+        async function generateChart() {
+            if (!canGenerate.value) return;
+
+            generatingChart.value = true;
+            chartResult.value = '<div class="alert alert-info"><span class="loading-spinner"></span>正在生成图表...</div>';
+
+            try {
+                const response = await fetch('{% url "multi_stats:generate_chart" %}', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ config: { ...config.value, group_column: groupColumn.value, selected_fields: selectedFields.value, selected_comparison_groups: selectedComparisonGroups.value } })
+                });
+                const data = await response.json();
+
+                if (data.success) {
+                    chartResult.value = '<div class="alert alert-success">✅ 图表生成成功！</div>';
+
+                    chartFields.value = Object.keys(data.individual_charts);
+                    individualCharts.value = data.individual_charts;
+                    mainChart.value = data.main_chart;
+                    allStats.value = data.all_stats;
+                    fieldCount.value = data.field_count;
+                    activeTab.value = 0;
+
+                    showChartGallery.value = true;
+                    showDownloadSection.value = true;
+                    showStatsSection.value = true;
+
+                    renderStatsDetails();
+                } else {
+                    let errorMsg = data.error || '未知错误';
+                    if (errorMsg.includes('使用次数限制')) {
+                        errorMsg += '<br><a href="{% url 'login' %}" style="color: #667eea; font-weight: bold;">点击登录</a> 后可不限次数使用';
+                    }
+                    let traceInfo = data.trace ? `<pre style="font-size: 11px; overflow-x: auto; background: #f5f5f5; padding: 10px; margin-top: 10px;">${data.trace}</pre>` : '';
+                    chartResult.value = `<div class="alert alert-error"><strong>生成失败:</strong> ${errorMsg}${traceInfo}</div>`;
+                }
+            } catch (error) {
+                chartResult.value = `<div class="alert alert-error"><strong>生成出错:</strong> ${error.message}</div>`;
+            } finally {
+                generatingChart.value = false;
+            }
+        }
+
+        function getFieldStatsSummary(field) {
+            if (!allStats.value || !allStats.value[field]) return '<p>无统计数据</p>';
+
+            let html = '<table class="stats-mini-table"><thead><tr><th>比较组</th><th>组1均值±SEM</th><th>组2均值±SEM</th><th>显著性</th></tr></thead><tbody>';
+            for (const groupStr of Object.keys(allStats.value[field])) {
+                const [g1, g2] = groupStr.split(' vs ');
+                const g1Stats = allStats.value[field][groupStr][g1];
+                const g2Stats = allStats.value[field][groupStr][g2];
+                html += `<tr>
+                    <td>${groupStr}</td>
+                    <td>${g1Stats.mean.toFixed(4)}±${g1Stats.sem.toFixed(4)}</td>
+                    <td>${g2Stats.mean.toFixed(4)}±${g2Stats.sem.toFixed(4)}</td>
+                    <td>-</td>
+                </tr>`;
+            }
+            html += '</tbody></table>';
+            return html;
+        }
+
+        function getSignificance(p) {
+            if (p < 0.001) return '***';
+            if (p < 0.01) return '**';
+            if (p < 0.05) return '*';
+            return 'ns';
+        }
+
+        function renderStatsDetails() {
+            if (!allStats.value) return;
+
+            let html = '';
+            for (const field of selectedFields.value) {
+                html += `<h4>${field}</h4>`;
+                html += '<table class="stats-table"><thead><tr><th>比较组</th><th>组1</th><th>组2</th><th>p值</th><th>显著性</th></tr></thead><tbody>';
+
+                for (const groupStr of selectedComparisonGroups.value) {
+                    const [g1, g2] = groupStr.split(' vs ');
+                    const g1Stats = allStats.value[field][groupStr][g1];
+                    const g2Stats = allStats.value[field][groupStr][g2];
+                    const pVal = 1;
+
+                    html += `<tr>
+                        <td>${groupStr}</td>
+                        <td>${g1Stats.mean.toFixed(4)} ± ${g1Stats.sem.toFixed(4)} (n=${g1Stats.n})</td>
+                        <td>${g2Stats.mean.toFixed(4)} ± ${g2Stats.sem.toFixed(4)} (n=${g2Stats.n})</td>
+                        <td>${pVal.toFixed(4)}</td>
+                        <td>${getSignificance(pVal)}</td>
+                    </tr>`;
+                }
+                html += '</tbody></table>';
+            }
+            statsDetailsHtml.value = html;
+        }
+
+        async function downloadCharts() {
+            try {
+                const response = await fetch('{% url "multi_stats:download_charts" %}', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({
+                        config: { ...config.value, group_column: groupColumn.value, selected_fields: selectedFields.value, selected_comparison_groups: selectedComparisonGroups.value },
+                        format: downloadFormat.value,
+                        dpi: downloadDpi.value
+                    })
+                });
+
+                const blob = await response.blob();
+                const url = window.URL.createObjectURL(blob);
+                const a = document.createElement('a');
+                a.href = url;
+                a.download = response.headers.get('Content-Disposition')?.match(/filename="(.+)"/)?.[1] || 'charts.zip';
+                document.body.appendChild(a);
+                a.click();
+                window.URL.revokeObjectURL(url);
+                document.body.removeChild(a);
+            } catch (error) {
+                showAlert('下载失败: ' + error.message, 'error');
+            }
+        }
+
+        // 初始化
+        onMounted(() => {
+            initColorPreview();
+        });
+
+        return {
+            // 认证状态
+            IS_AUTHENTICATED,
+            HAS_USED,
+
+            // 数据
+            dfData,
+            columns,
+            numericColumns,
+            selectedFields,
+            selectedComparisonGroups,
+            allStats,
+            uploading,
+            uploadResult,
+            showDataSection,
+            sampleFilterHtml,
+            validCount,
+            groupColumn,
+            showComparisonSection,
+            uniqueGroupsText,
+            comparisonGroups,
+            selectAllComparisons,
+            selectAllFields,
+            colorPreview,
+            generatingChart,
+            chartResult,
+            generateHint,
+            generateHintColor,
+            showChartGallery,
+            chartFields,
+            individualCharts,
+            mainChart,
+            activeTab,
+            fieldCount,
+            showDownloadSection,
+            showStatsSection,
+            statsDetailsHtml,
+            downloadFormat,
+            downloadDpi,
+            config,
+            alertMessage,
+            alertType,
+
+            // 计算属性
+            canGenerate,
+
+            // 方法
+            showAlert,
+            initColorPreview,
+            handleUpload,
+            handleGroupColumnChange,
+            handleSelectAllComparisons,
+            handleSelectAllFields,
+            updateGenerateButton,
+            generateChart,
+            getFieldStatsSummary,
+            downloadCharts
+        };
+    }
+}).mount('#app');
+</script>
+{% endblock %}

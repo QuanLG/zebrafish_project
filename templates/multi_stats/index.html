@@ -1,0 +1,830 @@
+{% extends "base.html" %}
+{% load static %}
+
+{% block title %}多指标统计作图 - 斑马鱼分析系统{% endblock %}
+
+{% block content %}
+<div class="card">
+    <div style="display: flex; justify-content: space-between; align-items: center;">
+        <h2>📊 多指标统计作图工具</h2>
+        <a href="{% url 'home' %}" class="btn" style="text-decoration: none;">🏠 返回主页</a>
+    </div>
+
+    <div id="alert-container"></div>
+
+    {% if not is_authenticated and not has_used %}
+    <div class="alert alert-info" style="margin-bottom: 15px;">
+        💡 您有 <strong>1 次</strong> 免费使用机会，
+        <a href="{% url 'login' %}" style="color: #667eea; font-weight: bold;">登录</a> 后可不限次数使用。
+    </div>
+    {% endif %}
+    {% if not is_authenticated and has_used %}
+    <div class="alert alert-warning" style="margin-bottom: 15px;">
+        ⚠ 您已达到免费使用次数，请
+        <a href="{% url 'login' %}" style="color: #667eea; font-weight: bold;">登录</a> 后继续使用。
+    </div>
+    {% endif %}
+
+    <div class="card" style="background-color: #f8f9fa;">
+        <h3>📁 文件上传</h3>
+        <form id="upload-form" method="post" enctype="multipart/form-data" action="{% url 'multi_stats:upload' %}">
+            {% csrf_token %}
+            <div class="form-group">
+                <label for="excel-file">请上传Excel文件 (.xlsx)</label>
+                <input type="file" id="excel-file" name="excel_file" accept=".xlsx" required>
+            </div>
+            <button type="submit" class="btn">上传文件</button>
+        </form>
+        <div id="upload-result" style="margin-top: 15px;"></div>
+    </div>
+
+    <div id="data-section" style="display: none;">
+        <div class="card">
+            <h3>🔧 样本编辑</h3>
+            <p class="info-text">💡 勾选"使用"列来包含样本，取消勾选则排除样本</p>
+            <div id="sample-filter-result"></div>
+            <div id="valid-count" style="margin-top: 10px;"></div>
+        </div>
+
+        <div class="card">
+            <h3>📌 字段选择</h3>
+            <div class="form-group">
+                <label for="group-column">选择分组字段（用于生成比较组）</label>
+                <select id="group-column"></select>
+            </div>
+            <!-- <div id="comparison-section" style="display: none;">
+                <div class="form-group">
+                    <label>比较组设置</label>
+                    <div id="unique-groups"></div>
+                    <div style="margin-bottom: 10px;">
+                        <input type="checkbox" id="select-all-comparisons">
+                        <label for="select-all-comparisons">全选所有比较组</label>
+                    </div>
+                    <div id="comparison-groups" style="margin-top: 10px;"></div>
+                </div>
+            </div>
+        </div> -->
+            <div id="comparison-section" style="display: none;">
+                <div class="form-group">
+                    <label>比较组设置</label>
+                    <div id="unique-groups"></div>
+                    <div class="checkbox-wrapper" style="margin-top: 10px;">
+                        <input type="checkbox" id="select-all-comparisons">
+                        <label for="select-all-comparisons">全选所有比较组</label>
+                    </div>
+                    <div id="comparison-groups" style="margin-top: 10px;"></div>
+                </div>
+            </div>
+
+        <div class="card">
+            <h3>📐 统计检验方式</h3>
+            <div class="form-group">
+                <label for="test-method">选择统计检验方法</label>
+                <select id="test-method">
+                    <option value="T检验 (ttest_ind)">T检验 (ttest_ind)</option>
+                    <option value="秩和检验 (mannwhitneyu)">秩和检验 (mannwhitneyu)</option>
+                </select>
+            </div>
+        </div>
+
+        <div class="card">
+            <h3>📊 分析字段选择</h3>
+            <div id="numeric-fields-count"></div>
+            <div style="margin-top: 10px;">
+                <input type="checkbox" id="select-all-fields">
+                <label for="select-all-fields">全选所有数值字段</label>
+            </div>
+            <div id="numeric-fields" style="margin-top: 10px;"></div>
+        </div>
+
+        <div class="card">
+            <h3>🎨 图表样式设置</h3>
+            <div class="grid grid-2">
+                <div class="form-group">
+                    <label for="color-palette">选择颜色方案</label>
+                    <select id="color-palette">
+                        {% for palette in palettes %}
+                        <option value="{{ palette }}">{{ palette }}</option>
+                        {% endfor %}
+                    </select>
+                    <div id="color-preview" class="color-preview"></div>
+                </div>
+                <div class="form-group">
+                    <label for="chart-type">选择图表类型</label>
+                    <select id="chart-type">
+                        {% for chart in chart_types %}
+                        <option value="{{ chart }}">{{ chart }}</option>
+                        {% endfor %}
+                    </select>
+                </div>
+            </div>
+
+            <h3 style="margin-top: 20px;">📐 图表尺寸设置</h3>
+            <div class="grid grid-2">
+                <div class="form-group">
+                    <label for="fig-width">单图宽度</label>
+                    <input type="range" id="fig-width" min="3" max="15" value="5">
+                    <span id="fig-width-val">5</span>
+                </div>
+                <div class="form-group">
+                    <label for="fig-height">单图高度</label>
+                    <input type="range" id="fig-height" min="3" max="15" value="4">
+                    <span id="fig-height-val">4</span>
+                </div>
+                <div class="form-group">
+                    <label for="group-spacing">组间距</label>
+                    <input type="range" id="group-spacing" min="0.5" max="2.0" step="0.1" value="1.0">
+                    <span id="group-spacing-val">1.0</span>
+                </div>
+                <div class="form-group">
+                    <label for="bar-width">柱子宽度</label>
+                    <input type="range" id="bar-width" min="0.3" max="1.0" step="0.05" value="0.6">
+                    <span id="bar-width-val">0.6</span>
+                </div>
+            </div>
+
+            <div class="grid grid-2">
+                <div class="form-group">
+                    <label for="line-width">线宽</label>
+                    <input type="range" id="line-width" min="1.0" max="5.0" step="0.1" value="2.5">
+                    <span id="line-width-val">2.5</span>
+                </div>
+                <div class="form-group">
+                    <label for="low-alpha">柱子透明度</label>
+                    <input type="range" id="low-alpha" min="0.0" max="1.0" step="0.1" value="0.4">
+                    <span id="low-alpha-val">0.4</span>
+                </div>
+                <div class="form-group">
+                    <label for="point-size">点图点大小</label>
+                    <input type="range" id="point-size" min="5" max="50" step="5" value="10">
+                    <span id="point-size-val">10</span>
+                </div>
+            </div>
+
+            <div style="margin-top: 15px;">
+                <div class="checkbox-wrapper">
+                    <input type="checkbox" id="show-title" checked>
+                    <label for="show-title">显示图表标题</label>
+                </div>
+                <div class="checkbox-wrapper">
+                    <input type="checkbox" id="show-legend" checked>
+                    <label for="show-legend">显示图例</label>
+                </div>
+                <div class="checkbox-wrapper">
+                    <input type="checkbox" id="show-grid" checked>
+                    <label for="show-grid">显示网格</label>
+                </div>
+            </div>
+        </div>
+
+        <div class="card">
+            <h3>📈 数据可视化</h3>
+            <button id="generate-chart" class="btn" disabled>生成图表</button>
+            <div id="generate-hint" style="margin-top: 10px; color: #666; font-size: 14px;">
+                提示：需要选择至少一个比较组和至少一个数值字段才能生成图表
+            </div>
+            <div id="chart-result" style="margin-top: 20px;"></div>
+        </div>
+
+        <div id="chart-gallery-section" class="card" style="display: none;">
+            <h3>📊 图表展示 <span id="chart-gallery-count"></span></h3>
+            <div class="chart-tabs">
+                <div class="chart-tabs-nav" id="chart-tabs-nav"></div>
+                <div class="chart-tabs-content" id="chart-tabs-content"></div>
+            </div>
+            <div class="chart-fullview" style="margin-top: 20px;">
+                <h4>组合图表 (全部指标)</h4>
+                <div id="combined-chart-container" style="overflow-x: auto;"></div>
+            </div>
+        </div>
+
+        <div id="download-section" class="card" style="display: none;">
+            <h3>📥 图片下载</h3>
+            <div class="grid grid-2">
+                <div class="form-group">
+                    <label>选择下载格式</label>
+                    <div>
+                        <input type="radio" name="download-format" value="png" checked> PNG
+                        <input type="radio" name="download-format" value="pdf"> PDF
+                        <input type="radio" name="download-format" value="svg"> SVG
+                    </div>
+                </div>
+                <div class="form-group">
+                    <label for="download-dpi">图片DPI</label>
+                    <input type="range" id="download-dpi" min="72" max="600" step="1" value="300">
+                    <span id="download-dpi-val">300</span>
+                </div>
+            </div>
+            <button id="download-charts" class="btn">下载全部图片</button>
+        </div>
+
+        <div id="stats-section" class="card" style="display: none;">
+            <h3>📊 统计详情</h3>
+            <div id="stats-result"></div>
+        </div>
+    </div>
+</div>
+{% endblock %}
+
+{% block extra_js %}
+<script>
+const IS_AUTHENTICATED = {{ is_authenticated|yesno:"true,false" }};
+const HAS_USED = {{ has_used|yesno:"true,false" }};
+
+const COLOR_PALETTES = {
+    'default_color': ['#FF0000', '#0000FF', '#AD07E3', '#008000', '#CE0665', '#0F99B2', '#C5944E', '#FF6000'],
+    'gray_black': ['#333333', '#666666', '#999999', '#CCCCCC'],
+    'Set1': ['#e41a1c', '#377eb8', '#4daf4a', '#984ea3', '#ff7f00', '#ffff33', '#a65628', '#f781bf'],
+    'Set2': ['#66c2a5', '#fc8d62', '#8da0cb', '#e78ac3', '#a6d854', '#ffd92f', '#e5c494', '#b3b3b3'],
+    'tab10': ['#1f77b4', '#ff7f0e', '#2ca02c', '#d62728', '#9467bd', '#8c564b', '#e377c2', '#7f7f7f'],
+};
+
+let dfData = null;
+let numericColumns = [];
+let selectedFields = [];
+let selectedComparisonGroups = [];
+let allStats = null;
+let sampleData = {
+    columns: [],
+    data: [],
+    use_flags: [],
+    total_pages: 1,
+    total_items: 0,
+    current_page: 1,
+    page_size: 10
+};
+
+document.addEventListener('DOMContentLoaded', function() {
+    initColorPreview();
+
+    const uploadForm = document.getElementById('upload-form');
+    if (uploadForm) {
+        uploadForm.addEventListener('submit', function(e) {
+            e.preventDefault();
+            e.stopPropagation();
+            handleUpload(e);
+            return false;
+        });
+    }
+    document.getElementById('group-column').addEventListener('change', handleGroupColumnChange);
+    document.getElementById('select-all-comparisons').addEventListener('change', handleSelectAllComparisons);
+    document.getElementById('select-all-fields').addEventListener('change', handleSelectAllFields);
+    document.getElementById('color-palette').addEventListener('change', initColorPreview);
+    document.getElementById('generate-chart').addEventListener('click', generateChart);
+    document.getElementById('download-charts').addEventListener('click', downloadCharts);
+
+    ['fig-width', 'fig-height', 'group-spacing', 'bar-width', 'line-width', 'low-alpha', 'point-size', 'download-dpi'].forEach(id => {
+        const el = document.getElementById(id);
+        if (el) {
+            el.addEventListener('input', function() {
+                const displayEl = document.getElementById(id + '-val');
+                if (displayEl) displayEl.textContent = this.value;
+            });
+        }
+    });
+});
+
+function initColorPreview() {
+    const palette = document.getElementById('color-palette').value;
+    const colors = COLOR_PALETTES[palette] || COLOR_PALETTES['default_color'];
+    const preview = document.getElementById('color-preview');
+    preview.innerHTML = colors.slice(0, 8).map(c =>
+        `<div class="color-box" style="background-color: ${c};"></div>`
+    ).join('');
+}
+
+function showAlert(message, type = 'info') {
+    const container = document.getElementById('alert-container');
+    container.innerHTML = `<div class="alert alert-${type}">${message}</div>`;
+    setTimeout(() => container.innerHTML = '', 5000);
+}
+
+async function handleUpload(e) {
+    e.preventDefault();
+    const formData = new FormData();
+    const fileInput = document.getElementById('excel-file');
+    formData.append('excel_file', fileInput.files[0]);
+
+    try {
+        const response = await fetch('{% url "multi_stats:upload" %}', {
+            method: 'POST',
+            body: formData
+        });
+        const data = await response.json();
+
+        if (data.success) {
+            dfData = data;
+            numericColumns = data.numeric_columns;
+
+            document.getElementById('upload-result').innerHTML =
+                `<div class="alert alert-success">✅ 文件上传成功: ${fileInput.files[0].name}<br>📋 原始数据: ${data.shape.rows} 行 × ${data.shape.cols} 列</div>`;
+
+            populateGroupColumn(data.columns);
+            populateNumericFields();
+            document.getElementById('data-section').style.display = 'block';
+            renderSampleFilter();
+
+            // 自动触发分组字段change事件加载比较组
+            const groupColumn = document.getElementById('group-column');
+            if (groupColumn.value) {
+                handleGroupColumnChange();
+            }
+        } else {
+            showAlert('上传失败: ' + data.error, 'error');
+        }
+    } catch (error) {
+        showAlert('上传出错: ' + error.message, 'error');
+    }
+}
+
+function populateGroupColumn(columns) {
+    const select = document.getElementById('group-column');
+    select.innerHTML = columns.map(col =>
+        `<option value="${col}" ${col === 'group' ? 'selected' : ''}>${col}</option>`
+    ).join('');
+}
+
+function renderSampleFilter(page = 1) {
+    if (!dfData) return;
+
+    fetch('{% url "multi_stats:sample_data" %}', {
+        method: 'POST',
+        headers: {'Content-Type': 'application/json'},
+        body: JSON.stringify({ page: page, page_size: 10 })
+    }).then(res => res.json()).then(data => {
+        if (data.success) {
+            // 更新分页数据
+            sampleData.columns = data.columns || [];
+            sampleData.data = data.data || [];
+            sampleData.use_flags = data.use_flags || [];
+            sampleData.total_pages = data.total_pages || 1;
+            sampleData.total_items = data.total_items || 0;
+            sampleData.current_page = data.current_page || 1;
+            sampleData.page_size = data.page_size || 10;
+
+            const columns = sampleData.columns;
+            let html = '<table><thead><tr><th>使用</th>';
+            columns.forEach(col => {
+                html += `<th>${col}</th>`;
+            });
+            html += '</tr></thead><tbody>';
+
+            sampleData.data.forEach((row, idx) => {
+                // 计算全局索引
+                const globalIdx = (sampleData.current_page - 1) * sampleData.page_size + idx;
+                const isUsed = sampleData.use_flags[idx] === 1;
+                html += '<tr>';
+                html += `<td><input type="checkbox" class="sample-checkbox" data-idx="${globalIdx}" ${isUsed ? 'checked' : ''}></td>`;
+                columns.forEach(col => {
+                    html += `<td>${row[col] ?? ''}</td>`;
+                });
+                html += '</tr>';
+            });
+            html += '</tbody></table>';
+            document.getElementById('sample-filter-result').innerHTML = html;
+
+            document.querySelectorAll('.sample-checkbox').forEach(cb => {
+                cb.addEventListener('change', updateSampleFilter);
+            });
+
+            // 渲染分页控件
+            renderPagination();
+
+            document.getElementById('numeric-fields-count').textContent =
+                `数值字段: ${numericColumns.length} 个`;
+        } else {
+            showAlert('获取样本数据失败: ' + data.error, 'error');
+        }
+    }).catch(err => {
+        showAlert('获取样本数据出错: ' + err.message, 'error');
+    });
+}
+
+function renderPagination() {
+    // 查找或创建分页容器
+    let paginationContainer = document.getElementById('pagination-container');
+    if (!paginationContainer) {
+        paginationContainer = document.createElement('div');
+        paginationContainer.id = 'pagination-container';
+        paginationContainer.className = 'pagination';
+        const validCountDiv = document.getElementById('valid-count');
+        validCountDiv.parentNode.insertBefore(paginationContainer, validCountDiv);
+    }
+    
+    if (sampleData.total_pages <= 1) {
+        paginationContainer.innerHTML = '';
+        document.getElementById('valid-count').innerHTML =
+            `<div class="alert alert-success">当前有效样本数: ${sampleData.total_items}</div>`;
+        return;
+    }
+
+    let html = `<div style="margin-bottom: 10px;">显示第 ${(sampleData.current_page - 1) * sampleData.page_size + 1} - ${Math.min(sampleData.current_page * sampleData.page_size, sampleData.total_items)} 条，共 ${sampleData.total_items} 条记录</div>`;
+    html += '<div class="pagination-buttons">';
+    
+    // 上一页
+    html += `<button ${sampleData.current_page === 1 ? 'disabled' : ''} onclick="renderSampleFilter(${sampleData.current_page - 1})">上一页</button>`;
+    
+    // 页码按钮
+    const maxVisiblePages = 5;
+    let startPage = Math.max(1, sampleData.current_page - Math.floor(maxVisiblePages / 2));
+    let endPage = Math.min(sampleData.total_pages, startPage + maxVisiblePages - 1);
+    
+    if (endPage - startPage + 1 < maxVisiblePages) {
+        startPage = Math.max(1, endPage - maxVisiblePages + 1);
+    }
+    
+    if (startPage > 1) {
+        html += `<button onclick="renderSampleFilter(1)">1</button>`;
+        if (startPage > 2) {
+            html += `<span class="pagination-ellipsis">...</span>`;
+        }
+    }
+    
+    for (let i = startPage; i <= endPage; i++) {
+        html += `<button ${i === sampleData.current_page ? 'class="active"' : ''} onclick="renderSampleFilter(${i})">${i}</button>`;
+    }
+    
+    if (endPage < sampleData.total_pages) {
+        if (endPage < sampleData.total_pages - 1) {
+            html += `<span class="pagination-ellipsis">...</span>`;
+        }
+        html += `<button onclick="renderSampleFilter(${sampleData.total_pages})">${sampleData.total_pages}</button>`;
+    }
+    
+    // 下一页
+    html += `<button ${sampleData.current_page === sampleData.total_pages ? 'disabled' : ''} onclick="renderSampleFilter(${sampleData.current_page + 1})">下一页</button>`;
+    html += '</div>';
+    
+    paginationContainer.innerHTML = html;
+    
+    document.getElementById('valid-count').innerHTML =
+        `<div class="alert alert-success">当前有效样本数: ${sampleData.total_items}</div>`;
+}
+
+async function updateSampleFilter() {
+    const useFlags = {};
+    document.querySelectorAll('.sample-checkbox').forEach(cb => {
+        useFlags[cb.dataset.idx] = cb.checked;
+    });
+
+    try {
+        const response = await fetch('{% url "multi_stats:update_filter" %}', {
+            method: 'POST',
+            headers: {'Content-Type': 'application/json'},
+            body: JSON.stringify({ use_flags: useFlags })
+        });
+        const data = await response.json();
+        if (data.success) {
+            document.getElementById('valid-count').innerHTML =
+                `<div class="alert alert-success">当前有效样本数: ${data.valid_count}</div>`;
+        }
+    } catch (error) {
+        console.error('Update filter error:', error);
+    }
+}
+
+async function handleGroupColumnChange() {
+    const groupColumn = document.getElementById('group-column').value;
+    console.log('Group column changed:', groupColumn);
+
+    if (!groupColumn) {
+        console.log('No group column selected');
+        return;
+    }
+
+    try {
+        const response = await fetch('{% url "multi_stats:comparison_groups" %}', {
+            method: 'POST',
+            headers: {'Content-Type': 'application/json'},
+            body: JSON.stringify({ group_column: groupColumn })
+        });
+        const data = await response.json();
+        console.log('Comparison groups response:', data);
+
+        if (data.success) {
+            document.getElementById('unique-groups').textContent =
+                `分组唯一值 (${data.unique_groups.length} 个): ${data.unique_groups.slice(0, 5).join(', ')}${data.unique_groups.length > 5 ? '...' : ''}`;
+
+            const comparisonHtml = data.comparison_groups.map(g =>
+                `<div class="checkbox-wrapper"><input type="checkbox" class="comparison-checkbox" value="${g}"><label>${g}</label></div>`
+            ).join('');
+            document.getElementById('comparison-groups').innerHTML = comparisonHtml;
+
+            document.querySelectorAll('.comparison-checkbox').forEach(cb => {
+                cb.addEventListener('change', updateSelectedComparisons);
+            });
+
+            document.getElementById('comparison-section').style.display = 'block';
+            console.log('Comparison section displayed');
+
+            // 重置选择状态
+            selectedComparisonGroups = [];
+            selectedFields = [];
+            updateGenerateButton();
+            populateNumericFields();
+        } else {
+            console.error('Failed to get comparison groups:', data.error);
+            showAlert('获取比较组失败: ' + data.error, 'error');
+        }
+    } catch (error) {
+        console.error('Get comparison groups error:', error);
+        showAlert('获取比较组失败: ' + error.message, 'error');
+    }
+}
+
+function handleSelectAllComparisons() {
+    const selectAll = document.getElementById('select-all-comparisons').checked;
+    document.querySelectorAll('.comparison-checkbox').forEach(cb => {
+        cb.checked = selectAll;
+    });
+    updateSelectedComparisons();
+}
+
+function updateSelectedComparisons() {
+    selectedComparisonGroups = Array.from(document.querySelectorAll('.comparison-checkbox:checked'))
+        .map(cb => cb.value);
+    updateGenerateButton();
+}
+
+function handleSelectAllFields() {
+    const selectAll = document.getElementById('select-all-fields').checked;
+    document.querySelectorAll('.field-checkbox').forEach(cb => {
+        cb.checked = selectAll;
+    });
+    updateSelectedFields();
+}
+
+function populateNumericFields() {
+    const html = numericColumns.map(f =>
+        `<div class="checkbox-wrapper"><input type="checkbox" class="field-checkbox" value="${f}"><label>${f}</label></div>`
+    ).join('');
+    document.getElementById('numeric-fields').innerHTML = html;
+
+    document.querySelectorAll('.field-checkbox').forEach(cb => {
+        cb.addEventListener('change', updateSelectedFields);
+    });
+}
+
+function updateSelectedFields() {
+    selectedFields = Array.from(document.querySelectorAll('.field-checkbox:checked'))
+        .map(cb => cb.value);
+    updateGenerateButton();
+}
+
+function updateGenerateButton() {
+    const hasComparisons = selectedComparisonGroups.length > 0;
+    const hasFields = selectedFields.length > 0;
+    const btn = document.getElementById('generate-chart');
+    const hint = document.getElementById('generate-hint');
+
+    // 匿名用户已达到使用限制
+    if (!IS_AUTHENTICATED && HAS_USED) {
+        btn.disabled = true;
+        hint.textContent = '您已达到免费使用次数限制，请登录后继续使用';
+        hint.style.color = '#dc3545';
+        return;
+    }
+
+    btn.disabled = !hasComparisons || !hasFields;
+
+    // 更新提示信息
+    if (!hasComparisons && !hasFields) {
+        hint.textContent = '提示：需要选择至少一个比较组和至少一个数值字段才能生成图表';
+        hint.style.color = '#dc3545';
+    } else if (!hasComparisons) {
+        hint.textContent = '提示：请选择至少一个比较组';
+        hint.style.color = '#dc3545';
+    } else if (!hasFields) {
+        hint.textContent = '提示：请选择至少一个数值字段';
+        hint.style.color = '#dc3545';
+    } else {
+        hint.textContent = '✓ 已准备好生成图表';
+        hint.style.color = '#28a745';
+    }
+
+    // 调试信息
+    console.log('Button state:', {
+        disabled: btn.disabled,
+        selectedComparisonGroups: selectedComparisonGroups,
+        selectedFields: selectedFields,
+        hasComparisons: hasComparisons,
+        hasFields: hasFields
+    });
+}
+
+async function generateChart() {
+    const config = {
+        group_column: document.getElementById('group-column').value,
+        selected_fields: selectedFields,
+        selected_comparison_groups: selectedComparisonGroups,
+        test_method: document.getElementById('test-method').value,
+        chart_type: document.getElementById('chart-type').value,
+        selected_palette: document.getElementById('color-palette').value,
+        fig_width: parseInt(document.getElementById('fig-width').value),
+        fig_height: parseInt(document.getElementById('fig-height').value),
+        group_spacing: parseFloat(document.getElementById('group-spacing').value),
+        bar_width: parseFloat(document.getElementById('bar-width').value),
+        line_width: parseFloat(document.getElementById('line-width').value),
+        low_alpha: parseFloat(document.getElementById('low-alpha').value),
+        point_size: parseInt(document.getElementById('point-size').value),
+        show_title: document.getElementById('show-title').checked,
+        show_legend: document.getElementById('show-legend').checked,
+        show_grid: document.getElementById('show-grid').checked
+    };
+
+    document.getElementById('chart-result').innerHTML =
+        '<div class="loading"><div class="spinner"></div><p>正在生成图表...</p></div>';
+
+    try {
+        const response = await fetch('{% url "multi_stats:generate_chart" %}', {
+            method: 'POST',
+            headers: {'Content-Type': 'application/json'},
+            body: JSON.stringify({ config })
+        });
+        const data = await response.json();
+
+        if (data.success) {
+            // 清空"正在生成图表"提示
+            document.getElementById('chart-result').innerHTML =
+                '<div class="alert alert-success">✅ 图表生成成功！</div>';
+
+            document.getElementById('chart-gallery-section').style.display = 'block';
+            document.getElementById('chart-gallery-count').textContent =
+                `(${data.field_count} 个指标)`;
+
+            renderChartGallery(data.individual_charts);
+            document.getElementById('combined-chart-container').innerHTML =
+                `<img src="data:image/png;base64,${data.main_chart}" style="max-width: 100%;">`;
+
+            allStats = data.all_stats;
+            renderStatsDetails();
+            document.getElementById('download-section').style.display = 'block';
+            document.getElementById('stats-section').style.display = 'block';
+        } else {
+            let errorMsg = data.error || '未知错误';
+            if (errorMsg.includes('使用次数限制')) {
+                errorMsg += '<br><a href="{% url 'login' %}" style="color: #667eea; font-weight: bold;">点击登录</a> 后可不限次数使用';
+            }
+            let traceInfo = data.trace ? `<pre style="font-size: 11px; overflow-x: auto; background: #f5f5f5; padding: 10px; margin-top: 10px;">${data.trace}</pre>` : '';
+            document.getElementById('chart-result').innerHTML =
+                `<div class="alert alert-error"><strong>生成失败:</strong> ${errorMsg}${traceInfo}</div>`;
+        }
+    } catch (error) {
+        document.getElementById('chart-result').innerHTML =
+            `<div class="alert alert-error"><strong>生成出错:</strong> ${error.message}</div>`;
+    }
+}
+
+function renderChartGallery(individualCharts) {
+    const tabsNav = document.getElementById('chart-tabs-nav');
+    const tabsContent = document.getElementById('chart-tabs-content');
+
+    const fields = Object.keys(individualCharts);
+    tabsNav.innerHTML = fields.map((field, idx) =>
+        `<button class="chart-tab-btn ${idx === 0 ? 'active' : ''}" data-tab="${idx}">${field}</button>`
+    ).join('');
+
+    tabsContent.innerHTML = fields.map((field, idx) =>
+        `<div class="chart-tab-panel ${idx === 0 ? 'active' : ''}" id="tab-panel-${idx}">
+            <div class="chart-img-wrapper">
+                <img src="data:image/png;base64,${individualCharts[field]}" alt="${field}">
+            </div>
+            <div class="chart-stats-summary">
+                <h4>${field} - 统计摘要</h4>
+                ${renderFieldStatsSummary(field)}
+            </div>
+        </div>`
+    ).join('');
+
+    tabsNav.querySelectorAll('.chart-tab-btn').forEach(btn => {
+        btn.addEventListener('click', function() {
+            const tabIdx = this.dataset.tab;
+            tabsNav.querySelectorAll('.chart-tab-btn').forEach(b => b.classList.remove('active'));
+            tabsContent.querySelectorAll('.chart-tab-panel').forEach(p => p.classList.remove('active'));
+            this.classList.add('active');
+            document.getElementById(`tab-panel-${tabIdx}`).classList.add('active');
+        });
+    });
+}
+
+function renderFieldStatsSummary(field) {
+    if (!allStats || !allStats[field]) return '<p>无统计数据</p>';
+
+    let html = '<table class="stats-mini-table"><thead><tr><th>比较组</th><th>组1均值±SEM</th><th>组2均值±SEM</th><th>显著性</th></tr></thead><tbody>';
+    for (const groupStr of Object.keys(allStats[field])) {
+        const [g1, g2] = groupStr.split(' vs ');
+        const g1Stats = allStats[field][groupStr][g1];
+        const g2Stats = allStats[field][groupStr][g2];
+        html += `<tr>
+            <td>${groupStr}</td>
+            <td>${g1Stats.mean.toFixed(4)}±${g1Stats.sem.toFixed(4)}</td>
+            <td>${g2Stats.mean.toFixed(4)}±${g2Stats.sem.toFixed(4)}</td>
+            <td>-</td>
+        </tr>`;
+    }
+    html += '</tbody></table>';
+    return html;
+}
+
+function renderStatsDetails() {
+    if (!allStats) return;
+
+    let html = '';
+    for (const field of selectedFields) {
+        html += `<h4>${field}</h4>`;
+        html += '<table><thead><tr><th>比较组</th><th>组1</th><th>组2</th><th>p值</th><th>显著性</th></tr></thead><tbody>';
+
+        for (const groupStr of selectedComparisonGroups) {
+            const [g1, g2] = groupStr.split(' vs ');
+            const g1Stats = allStats[field][groupStr][g1];
+            const g2Stats = allStats[field][groupStr][g2];
+            const pVal = parseFloat(g1Stats.sem) > 0 && parseFloat(g2Stats.sem) > 0 ?
+                calculatePValue(g1Stats.mean, g1Stats.sem, g1Stats.n, g2Stats.mean, g2Stats.sem, g2Stats.n) : 1;
+
+            html += `<tr>
+                <td>${groupStr}</td>
+                <td>${g1Stats.mean.toFixed(4)} ± ${g1Stats.sem.toFixed(4)} (n=${g1Stats.n})</td>
+                <td>${g2Stats.mean.toFixed(4)} ± ${g2Stats.sem.toFixed(4)} (n=${g2Stats.n})</td>
+                <td>${pVal.toFixed(4)}</td>
+                <td>${getSignificance(pVal)}</td>
+            </tr>`;
+        }
+        html += '</tbody></table>';
+    }
+    document.getElementById('stats-result').innerHTML = html;
+}
+
+function calculatePValue(m1, se1, n1, m2, se2, n2) {
+    return 1;
+}
+
+function getSignificance(p) {
+    if (p < 0.001) return '***';
+    if (p < 0.01) return '**';
+    if (p < 0.05) return '*';
+    return 'ns';
+}
+
+async function downloadCharts() {
+    const config = {
+        group_column: document.getElementById('group-column').value,
+        selected_fields: selectedFields,
+        selected_comparison_groups: selectedComparisonGroups,
+        test_method: document.getElementById('test-method').value,
+        chart_type: document.getElementById('chart-type').value,
+        selected_palette: document.getElementById('color-palette').value,
+        fig_width: parseInt(document.getElementById('fig-width').value),
+        fig_height: parseInt(document.getElementById('fig-height').value),
+        group_spacing: parseFloat(document.getElementById('group-spacing').value),
+        bar_width: parseFloat(document.getElementById('bar-width').value),
+        line_width: parseFloat(document.getElementById('line-width').value),
+        low_alpha: parseFloat(document.getElementById('low-alpha').value),
+        point_size: parseInt(document.getElementById('point-size').value),
+        show_title: document.getElementById('show-title').checked,
+        show_legend: document.getElementById('show-legend').checked,
+        show_grid: document.getElementById('show-grid').checked
+    };
+
+    const format = document.querySelector('input[name="download-format"]:checked').value;
+    const dpi = parseInt(document.getElementById('download-dpi').value);
+
+    try {
+        const response = await fetch('{% url "multi_stats:download_charts" %}', {
+            method: 'POST',
+            headers: {'Content-Type': 'application/json'},
+            body: JSON.stringify({ config, format, dpi })
+        });
+
+        const data = await response.json();
+        
+        if (data.success) {
+            // 从响应中获取文件名
+            const filename = data.filename || 'charts.zip';
+            console.log('获取到文件名:', filename);
+            
+            // 解码 base64 数据
+            const byteCharacters = atob(data.data);
+            const byteNumbers = new Array(byteCharacters.length);
+            for (let i = 0; i < byteCharacters.length; i++) {
+                byteNumbers[i] = byteCharacters.charCodeAt(i);
+            }
+            const byteArray = new Uint8Array(byteNumbers);
+            const blob = new Blob([byteArray], { type: 'application/zip' });
+            
+            const url = window.URL.createObjectURL(blob);
+            const a = document.createElement('a');
+            a.href = url;
+            a.download = filename;
+            document.body.appendChild(a);
+            a.click();
+            window.URL.revokeObjectURL(url);
+            document.body.removeChild(a);
+        } else {
+            showAlert('下载失败: ' + (data.error || '未知错误'), 'error');
+        }
+    } catch (error) {
+        showAlert('下载失败: ' + error.message, 'error');
+    }
+}
+</script>
+{% endblock %}

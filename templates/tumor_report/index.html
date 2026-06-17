@@ -1,0 +1,436 @@
+{% extends "base.html" %}
+{% load static %}
+
+{% block title %}抗肿瘤荧光报告 - 斑马鱼分析系统{% endblock %}
+
+{% block content %}
+<div class="card">
+    <h2>🔬 斑马鱼抗肿瘤荧光报告</h2>
+    <p>说明:</p>
+    <ul style="margin-left: 20px; margin-bottom: 20px;">
+        <li>从斑马鱼肿瘤荧光图片iod提取处理之后下载压缩包结果，直接上传结果文件</li>
+        <li>本报告适用于明场和暗场的肿瘤荧光数据处理</li>
+    </ul>
+
+    <div id="alert-container"></div>
+
+    <div class="card" style="background-color: #f8f9fa;">
+        <h3>Step I. 请上传结果</h3>
+        <form id="upload-form" method="post" enctype="multipart/form-data" action="{% url 'tumor_report:upload' %}">
+            {% csrf_token %}
+            <div class="form-group">
+                <label for="zip-file">上传包含图片的ZIP压缩包</label>
+                <input type="file" id="zip-file" name="zip_file" accept=".zip" required>
+            </div>
+            <button type="submit" class="btn">上传文件</button>
+        </form>
+        <div id="upload-result" style="margin-top: 15px;"></div>
+    </div>
+
+    <div id="config-section" style="display: none;">
+        <div class="card">
+            <h3>📄 报告配置信息</h3>
+            <p class="info-text">全部信息填写结束无误后，再点击末尾的<strong>保存配置</strong>按钮</p>
+
+            <form id="config-form">
+                <div class="grid grid-3">
+                    <div class="form-group">
+                        <label for="exp-id">报告编号</label>
+                        <input type="text" id="exp-id" placeholder="必填">
+                    </div>
+                    <div class="form-group">
+                        <label for="exp-client">委托单位</label>
+                        <input type="text" id="exp-client" placeholder="必填">
+                    </div>
+                    <div class="form-group">
+                        <label for="exp-project">检测项目</label>
+                        <input type="text" id="exp-project" placeholder="必填">
+                    </div>
+                    <div class="form-group">
+                        <label for="sample-name">样品名称</label>
+                        <input type="text" id="sample-name" placeholder="例如：黄鳝骨肽,必填">
+                    </div>
+                    <div class="form-group">
+                        <label for="sample-id">样品编号</label>
+                        <input type="text" id="sample-id" value="/" placeholder="可选填">
+                    </div>
+                    <div class="form-group">
+                        <label for="sample-status">样品状态</label>
+                        <input type="text" id="sample-status" placeholder="白色固体粉末">
+                    </div>
+                    <div class="form-group">
+                        <label for="sample-num">样品数量</label>
+                        <input type="text" id="sample-num" placeholder="填写供试物数量,必填">
+                    </div>
+                    <div class="form-group">
+                        <label for="sample-date">收样日期</label>
+                        <input type="date" id="sample-date">
+                    </div>
+                    <div class="form-group">
+                        <label for="test-date">测试日期</label>
+                        <input type="date" id="test-date">
+                    </div>
+                    <div class="form-group">
+                        <label for="test-dose">供试物剂量</label>
+                        <input type="text" id="test-dose" placeholder="例如：100μM，不填则默认为空">
+                    </div>
+                </div>
+
+                <h3 style="margin-top: 20px;">编辑表格 - 试剂信息</h3>
+                <div id="reagent-table-container">
+                    <table id="reagent-table">
+                        <thead>
+                            <tr>
+                                <th>供试品名称</th>
+                                <th>性状</th>
+                                <th>溶解性</th>
+                                <th>保存条件</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            <tr>
+                                <td><input type="text" value="样品1"></td>
+                                <td><input type="text" value="浅黄色固体粉末"></td>
+                                <td><input type="text" value="溶于水"></td>
+                                <td><input type="text" value="-20℃"></td>
+                            </tr>
+                            <tr>
+                                <td><input type="text" value="样品2"></td>
+                                <td><input type="text" value="浅黄色固体粉末"></td>
+                                <td><input type="text" value="溶于水"></td>
+                                <td><input type="text" value="-20℃"></td>
+                            </tr>
+                        </tbody>
+                    </table>
+                </div>
+
+                <h3 style="margin-top: 20px;">编辑表格 - 分组信息</h3>
+                <div id="group-table-container"></div>
+                <p class="info-text" style="margin-top: 10px;">
+                    <code>文件夹名</code>: 要求与文件夹的命名严格对应<br>
+                    <code>分组名</code>: 显示在报告作图的分组名称(实验组样本之外的必须从这三种选取：`正常对照组`， `模型对照组`， `阳性对照组`)<br>
+                    <code>组别</code>: 预定义的分组类型，可选有 `正常对照组`， `模型对照组`， `溶剂对照组`，`阳性对照组` 和 `实验组`<br>
+                    <code>样品类型</code>: 实验组的样品类型必须加单位如： 物质A（μg/mL）
+                </p>
+
+                <button type="submit" class="btn" style="margin-top: 20px;">保存配置</button>
+            </form>
+        </div>
+    </div>
+
+    <div id="stats-section" style="display: none;">
+        <div class="card">
+            <h3>Step II. 统计分析</h3>
+            <div id="sample-mode"></div>
+            <div class="grid grid-2">
+                <div>
+                    <h4>分组情况和原始IOD结果</h4>
+                    <div id="group-info-display"></div>
+                    <h4 style="margin-top: 15px;">原始IOD结果 (选择样本)</h4>
+                    <div id="sample-filter-container"></div>
+                </div>
+                <div>
+                    <h4>统计分析结果 - IOD</h4>
+                    <div id="stats-result-iod"></div>
+                    <h4 style="margin-top: 15px;">统计分析结果 - 面积</h4>
+                    <div id="stats-result-area"></div>
+                </div>
+            </div>
+        </div>
+
+        <div class="card">
+            <h3>检测结果</h3>
+            <div id="clean-stats-result"></div>
+        </div>
+
+        <div class="card">
+            <h3>图片样式设置</h3>
+            <div class="form-group">
+                <label for="color-palette">选择颜色方案</label>
+                <select id="color-palette">
+                    <option value="default_color">default_color</option>
+                    <option value="Set1">Set1</option>
+                    <option value="Set2">Set2</option>
+                    <option value="tab10">tab10</option>
+                    <option value="Paired">Paired</option>
+                    <option value="husl">husl</option>
+                </select>
+            </div>
+            <div id="chart-container"></div>
+        </div>
+
+        <div class="card">
+            <h3>结论编辑</h3>
+            <div class="grid grid-2">
+                <div class="form-group">
+                    <label for="conclusion-text">请根据图表结果修订结论</label>
+                    <textarea id="conclusion-text" rows="10" style="width: 100%;"></textarea>
+                </div>
+                <div class="form-group">
+                    <label for="decision-text">请根据图表结果修订讨论</label>
+                    <textarea id="decision-text" rows="10" style="width: 100%;"></textarea>
+                </div>
+            </div>
+            <button id="update-conclusion" class="btn">更新结论</button>
+        </div>
+
+        <div class="card">
+            <h3>下载报告</h3>
+            <button id="download-btn" class="btn">下载结果</button>
+            <div id="download-result" style="margin-top: 15px;"></div>
+        </div>
+    </div>
+</div>
+{% endblock %}
+
+{% block extra_js %}
+<script>
+let uploadedData = null;
+
+document.addEventListener('DOMContentLoaded', function() {
+    const today = new Date().toISOString().split('T')[0];
+    document.getElementById('sample-date').value = today;
+    document.getElementById('test-date').value = today;
+
+    const uploadForm = document.getElementById('upload-form');
+    if (uploadForm) {
+        uploadForm.addEventListener('submit', function(e) {
+            e.preventDefault();
+            e.stopPropagation();
+            handleUpload(e);
+            return false;
+        });
+    }
+    document.getElementById('config-form').addEventListener('submit', handleConfigSubmit);
+    document.getElementById('update-conclusion').addEventListener('click', updateConclusion);
+    document.getElementById('download-btn').addEventListener('click', downloadResults);
+});
+
+function showAlert(message, type = 'info') {
+    const container = document.getElementById('alert-container');
+    container.innerHTML = `<div class="alert alert-${type}">${message}</div>`;
+    setTimeout(() => container.innerHTML = '', 8000);
+}
+
+async function handleUpload(e) {
+    e.preventDefault();
+    const formData = new FormData();
+    const fileInput = document.getElementById('zip-file');
+    formData.append('zip_file', fileInput.files[0]);
+
+    document.getElementById('upload-result').innerHTML =
+        '<div class="loading"><div class="spinner"></div><p>正在解压文件...</p></div>';
+
+    try {
+        const response = await fetch('{% url "tumor_report:upload" %}', {
+            method: 'POST',
+            body: formData
+        });
+        const data = await response.json();
+
+        if (data.success) {
+            uploadedData = data;
+            document.getElementById('upload-result').innerHTML =
+                `<div class="alert alert-success">✅ 文件解压成功</div>`;
+
+            renderGroupTable(data.group_info);
+            document.getElementById('config-section').style.display = 'block';
+        } else {
+            document.getElementById('upload-result').innerHTML =
+                `<div class="alert alert-error">上传失败: ${data.error}</div>`;
+        }
+    } catch (error) {
+        document.getElementById('upload-result').innerHTML =
+            `<div class="alert alert-error">上传出错: ${error.message}</div>`;
+    }
+}
+
+function renderGroupTable(groupInfo) {
+    let html = '<table id="group-table"><thead><tr><th>文件夹名</th><th>分组名</th><th>组别</th><th>样品类型</th></tr></thead><tbody>';
+    groupInfo.forEach(row => {
+        html += `<tr>
+            <td><input type="text" value="${row['文件夹名']}" class="group-folder-name"></td>
+            <td><input type="text" value="${row['分组名']}" class="group-name"></td>
+            <td><input type="text" value="${row['组别']}" class="group-type"></td>
+            <td><input type="text" value="${row['样品类型']}" class="sample-type"></td>
+        </tr>`;
+    });
+    html += '</tbody></table>';
+    document.getElementById('group-table-container').innerHTML = html;
+}
+
+async function handleConfigSubmit(e) {
+    e.preventDefault();
+
+    const edited_df_type = [];
+    document.querySelectorAll('#reagent-table tbody tr').forEach(row => {
+        const inputs = row.querySelectorAll('input');
+        edited_df_type.push({
+            '供试品名称': inputs[0].value,
+            '性状': inputs[1].value,
+            '溶解性': inputs[2].value,
+            '保存条件': inputs[3].value
+        });
+    });
+
+    const edited_df_info = [];
+    document.querySelectorAll('#group-table tbody tr').forEach(row => {
+        const inputs = row.querySelectorAll('input');
+        edited_df_info.push({
+            '文件夹名': inputs[0].value,
+            '分组名': inputs[1].value,
+            '组别': inputs[2].value,
+            '样品类型': inputs[3].value
+        });
+    });
+
+    const formValues = {
+        exp_id: document.getElementById('exp-id').value,
+        exp_client: document.getElementById('exp-client').value,
+        exp_project: document.getElementById('exp-project').value,
+        sample_name: document.getElementById('sample-name').value,
+        sample_id: document.getElementById('sample-id').value,
+        sample_status: document.getElementById('sample-status').value,
+        sample_num: document.getElementById('sample-num').value,
+        sample_date: document.getElementById('sample-date').value,
+        test_date: document.getElementById('test-date').value,
+        test_dose: document.getElementById('test-dose').value
+    };
+
+    try {
+        const response = await fetch('{% url "tumor_report:save_config" %}', {
+            method: 'POST',
+            headers: {'Content-Type': 'application/json'},
+            body: JSON.stringify({ form_values: formValues, edited_df_type, edited_df_info })
+        });
+        const data = await response.json();
+
+        if (data.success) {
+            showAlert('配置已保存', 'success');
+            runStatistics();
+        }
+    } catch (error) {
+        showAlert('保存失败: ' + error.message, 'error');
+    }
+}
+
+async function runStatistics() {
+    const palette = document.getElementById('color-palette').value;
+
+    document.getElementById('stats-section').style.display = 'block';
+
+    try {
+        const response = await fetch('{% url "tumor_report:run_statistics" %}', {
+            method: 'POST',
+            headers: {'Content-Type': 'application/json'},
+            body: JSON.stringify({ palette })
+        });
+        const data = await response.json();
+
+        if (data.success) {
+            document.getElementById('sample-mode').innerHTML =
+                `<div class="alert alert-info">实验设计情况，分析模式为: <strong>${uploadedData.sample_mode}</strong></div>`;
+
+            renderGroupInfoDisplay();
+            renderSampleFilter(data.stats_df);
+            document.getElementById('chart-container').innerHTML =
+                `<img src="data:image/png;base64,${data.plot}" style="max-width: 100%;">`;
+            document.getElementById('conclusion-text').value = data.con;
+            document.getElementById('decision-text').value = data.result;
+        } else {
+            showAlert('统计分析失败: ' + data.error, 'error');
+        }
+    } catch (error) {
+        showAlert('统计分析出错: ' + error.message, 'error');
+    }
+}
+
+function renderGroupInfoDisplay() {
+    if (!uploadedData) return;
+    let html = '<table><thead><tr><th>文件夹名</th><th>分组名</th><th>组别</th><th>样品类型</th></tr></thead><tbody>';
+    uploadedData.group_info.forEach(row => {
+        html += `<tr><td>${row['文件夹名']}</td><td>${row['分组名']}</td><td>${row['组别']}</td><td>${row['样品类型']}</td></tr>`;
+    });
+    html += '</tbody></table>';
+    document.getElementById('group-info-display').innerHTML = html;
+}
+
+function renderSampleFilter(statsDf) {
+    if (!uploadedData) return;
+    let html = '<table><thead><tr><th>使用</th><th>IOD值</th><th>面积</th><th>文件夹名</th><th>文件</th></tr></thead><tbody>';
+    uploadedData.iod_results.forEach((row, idx) => {
+        html += `<tr>
+            <td><input type="checkbox" class="sample-checkbox" data-idx="${idx}" checked></td>
+            <td>${row['iod值']}</td>
+            <td>${row['目标区域面积']}</td>
+            <td>${row['分组']}</td>
+            <td>${row['图片']}</td>
+        </tr>`;
+    });
+    html += '</tbody></table>';
+    document.getElementById('sample-filter-container').innerHTML = html;
+
+    document.querySelectorAll('.sample-checkbox').forEach(cb => {
+        cb.addEventListener('change', updateSampleFilter);
+    });
+}
+
+async function updateSampleFilter() {
+    const useFlags = {};
+    document.querySelectorAll('.sample-checkbox').forEach(cb => {
+        useFlags[cb.dataset.idx] = cb.checked;
+    });
+
+    try {
+        await fetch('{% url "tumor_report:update_filter" %}', {
+            method: 'POST',
+            headers: {'Content-Type': 'application/json'},
+            body: JSON.stringify({ use_flags: useFlags })
+        });
+    } catch (error) {
+        console.error('Update filter error:', error);
+    }
+}
+
+async function updateConclusion() {
+    const conTxt = document.getElementById('conclusion-text').value;
+    const resultTxt = document.getElementById('decision-text').value;
+
+    try {
+        await fetch('{% url "tumor_report:update_conclusion" %}', {
+            method: 'POST',
+            headers: {'Content-Type': 'application/json'},
+            body: JSON.stringify({ con_txt: conTxt, result_txt: resultTxt })
+        });
+        showAlert('结论已更新', 'success');
+    } catch (error) {
+        showAlert('更新失败: ' + error.message, 'error');
+    }
+}
+
+async function downloadResults() {
+    try {
+        const response = await fetch('{% url "tumor_report:download" %}', {
+            method: 'POST',
+            headers: {'Content-Type': 'application/json'},
+            body: JSON.stringify({})
+        });
+
+        const blob = await response.blob();
+        const url = window.URL.createObjectURL(blob);
+        const a = document.createElement('a');
+        a.href = url;
+        a.download = 'tumor_report.zip';
+        document.body.appendChild(a);
+        a.click();
+        window.URL.revokeObjectURL(url);
+        document.body.removeChild(a);
+
+        document.getElementById('download-result').innerHTML =
+            `<div class="alert alert-success">✅ 下载完成！</div>`;
+    } catch (error) {
+        showAlert('下载失败: ' + error.message, 'error');
+    }
+}
+</script>
+{% endblock %}

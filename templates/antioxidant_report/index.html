@@ -1,0 +1,1480 @@
+{% extends "base.html" %}
+{% load static %}
+
+{% block title %}抗氧化报告 - 斑马鱼分析系统{% endblock %}
+
+{% block content %}
+<div class="workflow-container">
+    <!-- 页面标题 -->
+    <div class="page-header">
+        <h1>🧪 斑马鱼抗氧化报告</h1>
+        <p class="subtitle">从ROS视频处理结果生成专业抗氧化实验报告</p>
+    </div>
+
+    <div id="alert-container"></div>
+
+    {% if not is_authenticated and not has_used %}
+    <div class="alert alert-info" style="margin-bottom: 15px;">
+        💡 您有 <strong>1 次</strong> 免费使用机会，
+        <a href="{% url 'login' %}" style="color: #667eea; font-weight: bold;">登录</a> 后可不限次数使用。
+    </div>
+    {% endif %}
+    {% if not is_authenticated and has_used %}
+    <div class="alert alert-warning" style="margin-bottom: 15px;">
+        ⚠ 您已达到免费使用次数，请
+        <a href="{% url 'login' %}" style="color: #667eea; font-weight: bold;">登录</a> 后继续使用。
+    </div>
+    {% endif %}
+
+    <!-- 步骤导航 -->
+    <div class="step-nav">
+        <div class="step-item active" data-step="1">
+            <div class="step-number">1</div>
+            <div class="step-label">上传数据</div>
+        </div>
+        <div class="step-line"></div>
+        <div class="step-item" data-step="2">
+            <div class="step-number">2</div>
+            <div class="step-label">配置信息</div>
+        </div>
+        <div class="step-line"></div>
+        <div class="step-item" data-step="3">
+            <div class="step-number">3</div>
+            <div class="step-label">统计分析</div>
+        </div>
+        <div class="step-line"></div>
+        <div class="step-item" data-step="4">
+            <div class="step-number">4</div>
+            <div class="step-label">生成报告</div>
+        </div>
+    </div>
+
+    <!-- Step 1: 上传数据 -->
+    <div class="step-content active" id="step-1">
+        <div id="error-step-1" class="error-container" style="display: none;"></div>
+        <div class="card upload-card">
+            <div class="card-header">
+                <span class="step-badge">步骤 1</span>
+                <h3>上传ROS分析结果</h3>
+            </div>
+            <div class="upload-zone" id="upload-zone">
+                <div class="upload-icon">📦</div>
+                <p class="upload-text">点击或拖拽上传ZIP文件</p>
+                <p class="upload-hint">支持从ROS视频处理下载的压缩包</p>
+                <input type="file" id="zip-file" name="zip_file" accept=".zip" style="display: none;">
+            </div>
+            <div id="upload-result"></div>
+            <div id="upload-preview" style="display: none;">
+                <h4>📁 检测到以下分组</h4>
+                <div id="folder-preview"></div>
+                <button class="btn btn-primary" onclick="goToStep(2)">下一步：配置信息 →</button>
+            </div>
+        </div>
+    </div>
+
+    <!-- Step 2: 配置信息 -->
+    <div class="step-content" id="step-2">
+        <div id="error-step-2" class="error-container" style="display: none;"></div>
+        <div class="card">
+            <div class="card-header">
+                <span class="step-badge">步骤 2</span>
+                <h3>填写报告配置</h3>
+            </div>
+            
+            <form id="config-form">
+                <!-- 基本信息 -->
+                <div class="form-section">
+                    <h4 class="section-title">📋 基本信息</h4>
+                    <div class="form-grid">
+                        <div class="form-group required">
+                            <label for="exp-id">报告编号</label>
+                            <input type="text" id="exp-id" placeholder="例如：2024-001">
+                        </div>
+                        <div class="form-group required">
+                            <label for="exp-client">委托单位</label>
+                            <input type="text" id="exp-client" placeholder="委托单位名称">
+                        </div>
+                        <div class="form-group required">
+                            <label for="exp-project">检测项目</label>
+                            <input type="text" id="exp-project" placeholder="检测项目名称">
+                        </div>
+                        <div class="form-group required">
+                            <label for="sample-name">样品名称</label>
+                            <input type="text" id="sample-name" placeholder="例如：黄鳝骨肽">
+                        </div>
+                        <div class="form-group">
+                            <label for="sample-id">样品编号</label>
+                            <input type="text" id="sample-id" value="/">
+                        </div>
+                        <div class="form-group">
+                            <label for="sample-status">样品状态</label>
+                            <input type="text" id="sample-status" placeholder="例如：白色固体粉末">
+                        </div>
+                        <div class="form-group required">
+                            <label for="sample-num">样品数量</label>
+                            <input type="text" id="sample-num" placeholder="供试物数量">
+                        </div>
+                        <div class="form-group">
+                            <label for="test-dose">供试物剂量</label>
+                            <input type="text" id="test-dose" placeholder="例如：100μM">
+                        </div>
+                        <div class="form-group">
+                            <label for="sample-date">收样日期</label>
+                            <input type="date" id="sample-date">
+                        </div>
+                        <div class="form-group">
+                            <label for="test-date">测试日期</label>
+                            <input type="date" id="test-date">
+                        </div>
+                    </div>
+                </div>
+
+                <!-- 试剂信息 -->
+                <div class="form-section">
+                    <h4 class="section-title">🧪 试剂信息</h4>
+                    <div id="reagent-table-container">
+                        <table id="reagent-table">
+                            <thead>
+                                <tr>
+                                    <th>供试品名称</th>
+                                    <th>性状</th>
+                                    <th>溶解性</th>
+                                    <th>保存条件</th>
+                                    <th>操作</th>
+                                </tr>
+                            </thead>
+                            <tbody>
+                                <tr>
+                                    <td><input type="text" value="样品1"></td>
+                                    <td><input type="text" value="浅黄色固体粉末"></td>
+                                    <td><input type="text" value="溶于水"></td>
+                                    <td><input type="text" value="-20℃"></td>
+                                    <td><button type="button" class="btn-icon" onclick="removeReagentRow(this)">🗑️</button></td>
+                                </tr>
+                            </tbody>
+                        </table>
+                        <button type="button" class="btn btn-secondary" onclick="addReagentRow()">+ 添加试剂</button>
+                    </div>
+                </div>
+
+                <!-- 分组信息 -->
+                <div class="form-section">
+                    <h4 class="section-title">📊 分组信息</h4>
+                    <div class="info-hint">
+                        <p>💡 <strong>分组说明：</strong></p>
+                        <ul>
+                            <li><code>文件夹名</code>: 与上传的文件夹名称严格对应</li>
+                            <li><code>分组名</code>: 显示在图表中的分组名称（对照组请从：正常对照组、模型对照组、阳性对照组 中选择）</li>
+                            <li><code>组别</code>: 预定义类型（正常对照组、模型对照组、溶剂对照组、阳性对照组、实验组）</li>
+                            <li><code>样品类型</code>: 实验组需注明单位，如：物质A（μg/mL）</li>
+                        </ul>
+                    </div>
+                    <div id="group-table-container"></div>
+                </div>
+
+                <div class="form-actions">
+                    <button type="button" class="btn btn-secondary" onclick="goToStep(1)">← 上一步</button>
+                    <button type="submit" class="btn btn-primary">保存配置并分析 →</button>
+                </div>
+            </form>
+        </div>
+    </div>
+
+    <!-- Step 3: 统计分析 -->
+    <div class="step-content" id="step-3">
+        <div id="error-step-3" class="error-container" style="display: none;"></div>
+        <div class="card">
+            <div class="card-header">
+                <span class="step-badge">步骤 3</span>
+                <h3>统计分析结果</h3>
+            </div>
+
+            <div id="sample-mode"></div>
+
+            <!-- 分组信息 -->
+            <div class="analysis-section">
+                <h4>📋 分组信息</h4>
+                <div id="group-info-display"></div>
+            </div>
+
+            <!-- 数据筛选 -->
+            <div class="analysis-section">
+                <h4>🔍 样本筛选</h4>
+                <p class="section-hint">勾选需要纳入分析的样本，取消勾选可排除异常数据</p>
+                <div id="sample-filter-container"></div>
+            </div>
+
+            <!-- 统计结果 -->
+            <div class="analysis-section">
+                <h4>📈 统计结果</h4>
+                <div id="stats-result"></div>
+            </div>
+
+            <!-- 图表设置 -->
+            <div class="analysis-section">
+                <h4>🎨 图表样式</h4>
+                <div class="form-inline">
+                    <div class="form-group">
+                        <label for="color-palette">颜色方案</label>
+                        <select id="color-palette">
+                            <option value="default_color">默认配色</option>
+                            <option value="Set1">Set1</option>
+                            <option value="Set2">Set2</option>
+                            <option value="tab10">Tab10</option>
+                            <option value="Paired">Paired</option>
+                            <option value="husl">HUSL</option>
+                        </select>
+                    </div>
+                    <button class="btn btn-secondary" onclick="reRunStatistics()">🔄 重新生成图表</button>
+                </div>
+                <div id="chart-container"></div>
+            </div>
+
+            <!-- 结论编辑 -->
+            <div class="analysis-section">
+                <h4>📝 结论与讨论</h4>
+                <div class="form-grid-2">
+                    <div class="form-group">
+                        <label for="conclusion-text">实验结论</label>
+                        <textarea id="conclusion-text" rows="8" placeholder="根据图表结果填写实验结论..."></textarea>
+                    </div>
+                    <div class="form-group">
+                        <label for="decision-text">结果讨论</label>
+                        <textarea id="decision-text" rows="8" placeholder="根据图表结果填写结果讨论..."></textarea>
+                    </div>
+                </div>
+                <button class="btn btn-secondary" onclick="updateConclusion()">💾 保存结论</button>
+            </div>
+
+            <div class="form-actions">
+                <button type="button" class="btn btn-secondary" onclick="goToStep(2)">← 上一步</button>
+                <button type="button" class="btn btn-primary" onclick="goToStep(4)">下一步：生成报告 →</button>
+            </div>
+        </div>
+    </div>
+
+    <!-- Step 4: 生成报告 -->
+    <div class="step-content" id="step-4">
+        <div id="error-step-4" class="error-container" style="display: none;"></div>
+        <div class="card">
+            <div class="card-header">
+                <span class="step-badge">步骤 4</span>
+                <h3>生成并下载报告</h3>
+            </div>
+
+            <div class="generate-section">
+                <div class="generate-preview">
+                    <div class="preview-icon">📄</div>
+                    <h4>报告预览</h4>
+                    <p>点击下方按钮合并所有图片并生成完整报告</p>
+                </div>
+                <button id="merge-btn" class="btn btn-primary btn-large" onclick="mergeAndGenerate()">
+                    <span class="btn-icon">🔧</span> 开始合并生成报告
+                </button>
+                
+                <!-- 合并后的图片展示 -->
+                <div id="merged-image-section" style="display: none; margin-top: 30px;">
+                    <h4 style="color: #333; margin-bottom: 15px;">📷 合并后的斑马鱼图片</h4>
+                    <div class="merged-image-container" style="background: #f8f9fa; padding: 20px; border-radius: 8px; text-align: center;">
+                        <img id="merged-image" style="max-width: 100%; height: auto; border-radius: 6px; box-shadow: 0 4px 12px rgba(0,0,0,0.1);" alt="合并后的图片">
+                    </div>
+                </div>
+                
+                <div id="merge-result"></div>
+            </div>
+
+            <div class="form-actions">
+                <button type="button" class="btn btn-secondary" onclick="goToStep(3)">← 上一步</button>
+            </div>
+        </div>
+    </div>
+</div>
+{% endblock %}
+
+{% block extra_js %}
+<script>
+// 使用次数限制配置
+const IS_AUTHENTICATED = {{ is_authenticated|yesno:"true,false" }};
+const HAS_USED = {{ has_used|yesno:"true,false" }};
+
+// ==================== 全局状态 ====================
+let uploadedData = null;
+let currentStep = 1;
+let errorState = {
+    step: null,
+    message: null,
+    details: null
+};
+
+// ==================== 初始化 ====================
+document.addEventListener('DOMContentLoaded', function() {
+    initDates();
+    initUploadZone();
+    initEventListeners();
+});
+
+function initDates() {
+    const today = new Date().toISOString().split('T')[0];
+    document.getElementById('sample-date').value = today;
+    document.getElementById('test-date').value = today;
+}
+
+function initUploadZone() {
+    const zone = document.getElementById('upload-zone');
+    const input = document.getElementById('zip-file');
+
+    zone.addEventListener('click', () => input.click());
+    zone.addEventListener('dragover', (e) => {
+        e.preventDefault();
+        zone.classList.add('dragover');
+    });
+    zone.addEventListener('dragleave', () => zone.classList.remove('dragover'));
+    zone.addEventListener('drop', (e) => {
+        e.preventDefault();
+        zone.classList.remove('dragover');
+        const files = e.dataTransfer.files;
+        if (files.length) {
+            input.files = files;
+            handleUpload(files[0]);
+        }
+    });
+    input.addEventListener('change', (e) => {
+        if (e.target.files.length) {
+            handleUpload(e.target.files[0]);
+        }
+    });
+}
+
+function initEventListeners() {
+    document.getElementById('config-form').addEventListener('submit', handleConfigSubmit);
+}
+
+// ==================== 步骤导航 ====================
+function goToStep(step) {
+    // 隐藏所有步骤
+    document.querySelectorAll('.step-content').forEach(el => el.classList.remove('active'));
+    document.querySelectorAll('.step-item').forEach(el => el.classList.remove('active', 'completed'));
+
+    // 显示目标步骤
+    document.getElementById(`step-${step}`).classList.add('active');
+    
+    // 更新步骤导航
+    for (let i = 1; i <= 4; i++) {
+        const stepEl = document.querySelector(`.step-item[data-step="${i}"]`);
+        if (i < step) {
+            stepEl.classList.add('completed');
+        } else if (i === step) {
+            stepEl.classList.add('active');
+        }
+    }
+
+    currentStep = step;
+    
+    // 滚动到顶部
+    window.scrollTo({ top: 0, behavior: 'smooth' });
+}
+
+// ==================== 错误处理 ====================
+function setError(step, message, details = null) {
+    errorState = { step, message, details };
+    showAlert(message, 'error');
+    
+    // 在对应步骤显示错误信息
+    const errorContainer = document.getElementById(`error-step-${step}`);
+    if (errorContainer) {
+        let detailsHtml = '';
+        if (details) {
+            detailsHtml = `<div class="error-details"><pre>${details}</pre></div>`;
+        }
+        errorContainer.innerHTML = `
+            <div class="error-box">
+                <div class="error-title">❌ 步骤 ${step} 发生错误</div>
+                <div class="error-message">${message}</div>
+                ${detailsHtml}
+                <button class="btn btn-secondary" onclick="clearError(${step})">清除错误</button>
+            </div>
+        `;
+        errorContainer.style.display = 'block';
+    }
+}
+
+function clearError(step) {
+    errorState = { step: null, message: null, details: null };
+    const errorContainer = document.getElementById(`error-step-${step}`);
+    if (errorContainer) {
+        errorContainer.innerHTML = '';
+        errorContainer.style.display = 'none';
+    }
+}
+
+function checkError(step) {
+    if (errorState.step === step) {
+        showAlert(`步骤 ${step} 存在错误，请先处理: ${errorState.message}`, 'error');
+        return true;
+    }
+    return false;
+}
+
+// ==================== 提示工具 ====================
+function showAlert(message, type = 'info') {
+    const container = document.getElementById('alert-container');
+    const alertDiv = document.createElement('div');
+    alertDiv.className = `alert alert-${type}`;
+    alertDiv.innerHTML = `
+        <span class="alert-icon">${type === 'success' ? '✓' : type === 'error' ? '✗' : 'ℹ'}</span>
+        <span class="alert-message">${message}</span>
+        <button class="alert-close" onclick="this.parentElement.remove()">×</button>
+    `;
+    container.appendChild(alertDiv);
+    
+    // 错误提示不自动消失
+    if (type !== 'error') {
+        setTimeout(() => {
+            if (alertDiv.parentElement) {
+                alertDiv.style.opacity = '0';
+                setTimeout(() => alertDiv.remove(), 300);
+            }
+        }, 5000);
+    }
+}
+
+// ==================== Step 1: 上传文件 ====================
+async function handleUpload(file) {
+    // 清除之前的错误
+    clearError(1);
+    
+    const formData = new FormData();
+    formData.append('zip_file', file);
+
+    document.getElementById('upload-result').innerHTML = 
+        '<div class="loading"><div class="spinner"></div><p>正在解析文件...</p></div>';
+
+    try {
+        const response = await fetch('{% url "antioxidant_report:upload" %}', {
+            method: 'POST',
+            body: formData
+        });
+        const data = await response.json();
+
+        if (data.success) {
+            uploadedData = data;
+            showAlert('文件上传成功！', 'success');
+            
+            // 显示文件夹预览
+            const previewHtml = data.group_info.map(g => 
+                `<span class="folder-tag">${g['文件夹名']}</span>`
+            ).join('');
+            document.getElementById('folder-preview').innerHTML = previewHtml;
+            
+            document.getElementById('upload-zone').style.display = 'none';
+            document.getElementById('upload-preview').style.display = 'block';
+            
+            // 渲染分组表格
+            renderGroupTable(data.group_info);
+            
+            // 清除加载状态
+            document.getElementById('upload-result').innerHTML = '';
+        } else {
+            const errorMsg = data.error || '未知错误';
+            const errorDetails = data.trace || null;
+            setError(1, '上传失败: ' + errorMsg, errorDetails);
+            document.getElementById('upload-result').innerHTML = 
+                `<div class="error-hint">上传失败，请查看下方错误信息</div>`;
+        }
+    } catch (error) {
+        setError(1, '上传出错: ' + error.message, error.stack);
+        document.getElementById('upload-result').innerHTML = 
+            `<div class="error-hint">上传出错，请查看下方错误信息</div>`;
+    }
+}
+
+function renderGroupTable(groupInfo) {
+    let html = '<table id="group-table"><thead><tr><th>文件夹名</th><th>分组名</th><th>组别</th><th>样品类型</th></tr></thead><tbody>';
+    groupInfo.forEach(row => {
+        html += `<tr>
+            <td><input type="text" value="${row['文件夹名']}" class="group-folder-name" readonly></td>
+            <td><input type="text" value="${row['分组名']}" class="group-name"></td>
+            <td>
+                <select class="group-type">
+                    <option value="正常对照组" ${row['组别'] === '正常对照组' ? 'selected' : ''}>正常对照组</option>
+                    <option value="模型对照组" ${row['组别'] === '模型对照组' ? 'selected' : ''}>模型对照组</option>
+                    <option value="溶剂对照组" ${row['组别'] === '溶剂对照组' ? 'selected' : ''}>溶剂对照组</option>
+                    <option value="阳性对照组" ${row['组别'] === '阳性对照组' ? 'selected' : ''}>阳性对照组</option>
+                    <option value="实验组" ${row['组别'] === '实验组' ? 'selected' : ''}>实验组</option>
+                </select>
+            </td>
+            <td><input type="text" value="${row['样品类型']}" class="sample-type"></td>
+        </tr>`;
+    });
+    html += '</tbody></table>';
+    document.getElementById('group-table-container').innerHTML = html;
+}
+
+// ==================== Step 2: 保存配置 ====================
+async function handleConfigSubmit(e) {
+    e.preventDefault();
+    
+    // 检查是否有错误未处理
+    if (checkError(1)) return;
+    
+    // 清除之前的错误
+    clearError(2);
+
+    // 收集试剂信息
+    const edited_df_type = [];
+    document.querySelectorAll('#reagent-table tbody tr').forEach(row => {
+        const inputs = row.querySelectorAll('input');
+        edited_df_type.push({
+            '供试品名称': inputs[0].value,
+            '性状': inputs[1].value,
+            '溶解性': inputs[2].value,
+            '保存条件': inputs[3].value
+        });
+    });
+
+    // 收集分组信息
+    const edited_df_info = [];
+    document.querySelectorAll('#group-table tbody tr').forEach(row => {
+        edited_df_info.push({
+            '文件夹名': row.querySelector('.group-folder-name').value,
+            '分组名': row.querySelector('.group-name').value,
+            '组别': row.querySelector('.group-type').value,
+            '样品类型': row.querySelector('.sample-type').value
+        });
+    });
+
+    // 收集表单值
+    const formValues = {
+        exp_id: document.getElementById('exp-id').value,
+        exp_client: document.getElementById('exp-client').value,
+        exp_project: document.getElementById('exp-project').value,
+        sample_name: document.getElementById('sample-name').value,
+        sample_id: document.getElementById('sample-id').value,
+        sample_status: document.getElementById('sample-status').value,
+        sample_num: document.getElementById('sample-num').value,
+        sample_date: document.getElementById('sample-date').value,
+        test_date: document.getElementById('test-date').value,
+        test_dose: document.getElementById('test-dose').value
+    };
+
+    // 验证必填项
+    const required = ['exp_id', 'exp_client', 'exp_project', 'sample_name', 'sample_num'];
+    for (let field of required) {
+        if (!formValues[field]) {
+            setError(2, '表单验证失败', `请填写必填项: ${field}`);
+            return;
+        }
+    }
+    
+    // 显示加载状态
+    const submitBtn = e.target.querySelector('button[type="submit"]');
+    const originalText = submitBtn.innerHTML;
+    submitBtn.disabled = true;
+    submitBtn.innerHTML = '<span class="spinner"></span> 保存中...';
+
+    try {
+        const response = await fetch('{% url "antioxidant_report:save_config" %}', {
+            method: 'POST',
+            headers: {'Content-Type': 'application/json'},
+            body: JSON.stringify({ form_values: formValues, edited_df_type, edited_df_info })
+        });
+        const data = await response.json();
+
+        if (data.success) {
+            showAlert('配置保存成功！', 'success');
+            goToStep(3);
+            await runStatistics();
+        } else {
+            const errorMsg = data.error || '未知错误';
+            const errorDetails = data.trace || null;
+            setError(2, '保存配置失败: ' + errorMsg, errorDetails);
+        }
+    } catch (error) {
+        setError(2, '保存配置出错: ' + error.message, error.stack);
+    } finally {
+        submitBtn.disabled = false;
+        submitBtn.innerHTML = originalText;
+    }
+}
+
+function addReagentRow() {
+    const tbody = document.querySelector('#reagent-table tbody');
+    const row = document.createElement('tr');
+    row.innerHTML = `
+        <td><input type="text" placeholder="供试品名称"></td>
+        <td><input type="text" placeholder="性状"></td>
+        <td><input type="text" placeholder="溶解性"></td>
+        <td><input type="text" placeholder="保存条件"></td>
+        <td><button type="button" class="btn-icon" onclick="removeReagentRow(this)">🗑️</button></td>
+    `;
+    tbody.appendChild(row);
+}
+
+function removeReagentRow(btn) {
+    btn.closest('tr').remove();
+}
+
+// ==================== Step 3: 统计分析 ====================
+async function runStatistics() {
+    // 检查前置步骤是否有错误
+    if (checkError(1) || checkError(2)) return;
+    
+    // 清除之前的错误
+    clearError(3);
+
+    // 检查使用次数限制
+    if (!IS_AUTHENTICATED && HAS_USED) {
+        showAlert('您已达到免费使用次数限制（1次），请登录后继续使用', 'error');
+        return;
+    }
+
+    const palette = document.getElementById('color-palette').value;
+
+    document.getElementById('stats-result').innerHTML = '<div class="loading"><div class="spinner"></div><p>正在分析数据...</p></div>';
+
+    try {
+        const response = await fetch('{% url "antioxidant_report:run_statistics" %}', {
+            method: 'POST',
+            headers: {'Content-Type': 'application/json'},
+            body: JSON.stringify({ palette })
+        });
+        const data = await response.json();
+
+        if (data.success) {
+            document.getElementById('sample-mode').innerHTML = 
+                `<div class="mode-badge">分析模式: <strong>${uploadedData.sample_mode}</strong></div>`;
+
+            // 更新 uploadedData.iod_results 为包含 use 状态的最新数据
+            if (data.iod_results) {
+                uploadedData.iod_results = data.iod_results;
+            }
+
+            renderGroupInfoDisplay();
+            renderSampleFilter(data.iod_results || uploadedData.iod_results);
+            document.getElementById('stats-result').innerHTML = renderStatsTable(data.stats_df);
+            document.getElementById('chart-container').innerHTML = 
+                `<img src="data:image/png;base64,${data.plot}" class="chart-image">`;
+            document.getElementById('conclusion-text').value = data.con;
+            document.getElementById('decision-text').value = data.result;
+            
+            showAlert('统计分析完成！', 'success');
+        } else {
+            let errorMsg = data.error || '未知错误';
+            if (errorMsg.includes('使用次数限制')) {
+                errorMsg += '<br><a href="{% url 'login' %}" style="color: #667eea; font-weight: bold;">点击登录</a> 后可不限次数使用';
+            }
+            const errorDetails = data.trace || null;
+            setError(3, '统计分析失败: ' + errorMsg, errorDetails);
+            document.getElementById('stats-result').innerHTML = 
+                `<div class="error-hint">分析失败，请查看下方错误信息</div>`;
+        }
+    } catch (error) {
+        setError(3, '统计分析出错: ' + error.message, error.stack);
+        document.getElementById('stats-result').innerHTML = 
+            `<div class="error-hint">分析出错，请查看下方错误信息</div>`;
+    }
+}
+
+async function reRunStatistics() {
+    await runStatistics();
+}
+
+function renderGroupInfoDisplay() {
+    if (!uploadedData) return;
+    let html = '<table class="compact-table"><thead><tr><th>文件夹名</th><th>分组名</th><th>组别</th><th>样品类型</th></tr></thead><tbody>';
+    uploadedData.group_info.forEach(row => {
+        html += `<tr><td>${row['文件夹名']}</td><td>${row['分组名']}</td><td>${row['组别']}</td><td>${row['样品类型']}</td></tr>`;
+    });
+    html += '</tbody></table>';
+    document.getElementById('group-info-display').innerHTML = html;
+}
+
+function renderSampleFilter(iodResults) {
+    // 使用传入的 iodResults 或 uploadedData.iod_results
+    const results = iodResults || (uploadedData ? uploadedData.iod_results : null);
+    
+    if (!results || results.length === 0) {
+        document.getElementById('sample-filter-container').innerHTML = '<p class="text-muted">暂无数据</p>';
+        return;
+    }
+
+    let html = '<table class="compact-table"><thead><tr><th>使用</th><th>IOD值</th><th>文件夹名</th><th>文件</th></tr></thead><tbody>';
+    results.forEach((row, idx) => {
+        // 根据 use 字段设置复选框状态（注意：use 可能是布尔值或 0/1）
+        const isChecked = row['use'] === true || row['use'] === 1 || row['use'] === 'True';
+        const checkedAttr = isChecked ? 'checked' : '';
+        html += `<tr>
+            <td><input type="checkbox" class="sample-checkbox" data-idx="${idx}" ${checkedAttr}></td>
+            <td>${row['IOD值']}</td>
+            <td>${row['分组']}</td>
+            <td>${row['file']}</td>
+        </tr>`;
+    });
+    html += '</tbody></table>';
+    document.getElementById('sample-filter-container').innerHTML = html;
+
+    // 绑定筛选事件
+    document.querySelectorAll('.sample-checkbox').forEach(cb => {
+        cb.addEventListener('change', updateSampleFilter);
+    });
+}
+
+function renderStatsTable(statsDf) {
+    let html = '<table class="stats-table"><thead><tr><th>组别</th><th>分组名</th><th>ROS含量(%)</th><th>P值</th></tr></thead><tbody>';
+    statsDf.forEach(row => {
+        html += `<tr>
+            <td>${row['组别']}</td>
+            <td>${row['分组名']}</td>
+            <td>${row['斑马鱼体内ROS含量(%)']}</td>
+            <td>${row['P值']}</td>
+        </tr>`;
+    });
+    html += '</tbody></table>';
+    return html;
+}
+
+async function updateSampleFilter() {
+    const useFlags = {};
+    document.querySelectorAll('.sample-checkbox').forEach(cb => {
+        useFlags[cb.dataset.idx] = cb.checked;
+    });
+
+    try {
+        const response = await fetch('{% url "antioxidant_report:update_filter" %}', {
+            method: 'POST',
+            headers: {'Content-Type': 'application/json'},
+            body: JSON.stringify({ use_flags: useFlags })
+        });
+        const data = await response.json();
+
+        if (data.success) {
+            // 同步后端返回的最新数据
+            if (data.iod_results) {
+                uploadedData.iod_results = data.iod_results;
+            }
+            showAlert(data.message || '筛选已更新', 'success');
+        } else {
+            showAlert('更新失败: ' + data.error, 'error');
+        }
+    } catch (error) {
+        showAlert('更新出错: ' + error.message, 'error');
+    }
+}
+
+async function updateConclusion() {
+    const conTxt = document.getElementById('conclusion-text').value;
+    const resultTxt = document.getElementById('decision-text').value;
+
+    try {
+        const response = await fetch('{% url "antioxidant_report:update_conclusion" %}', {
+            method: 'POST',
+            headers: {'Content-Type': 'application/json'},
+            body: JSON.stringify({ con_txt: conTxt, result_txt: resultTxt })
+        });
+        const data = await response.json();
+
+        if (data.success) {
+            showAlert('结论已保存', 'success');
+        } else {
+            showAlert('保存失败: ' + data.error, 'error');
+        }
+    } catch (error) {
+        showAlert('保存出错: ' + error.message, 'error');
+    }
+}
+
+// ==================== Step 4: 生成报告 ====================
+async function mergeAndGenerate() {
+    // 检查前置步骤是否有错误
+    if (checkError(1) || checkError(2) || checkError(3)) {
+        showAlert('请先处理前面的错误，再生成报告', 'error');
+        return;
+    }
+    
+    // 清除之前的错误
+    clearError(4);
+
+    // 检查使用次数限制
+    if (!IS_AUTHENTICATED && HAS_USED) {
+        showAlert('您已达到免费使用次数限制（1次），请登录后继续使用', 'error');
+        return;
+    }
+
+    const btn = document.getElementById('merge-btn');
+    const result = document.getElementById('merge-result');
+    
+    btn.disabled = true;
+    btn.innerHTML = '<span class="spinner"></span> 正在生成...';
+    result.innerHTML = '<div class="loading"><div class="spinner"></div><p>正在合并图片并生成报告...</p></div>';
+
+    try {
+        const response = await fetch('{% url "antioxidant_report:merge_and_generate" %}', {
+            method: 'POST',
+            headers: {'Content-Type': 'application/json'}
+        });
+        const data = await response.json();
+
+        if (data.success) {
+            // 显示合并后的图片
+            if (data.merged_image) {
+                const mergedImgSection = document.getElementById('merged-image-section');
+                const mergedImg = document.getElementById('merged-image');
+                mergedImg.src = 'data:image/png;base64,' + data.merged_image;
+                mergedImgSection.style.display = 'block';
+                
+                // 滚动到图片位置
+                mergedImgSection.scrollIntoView({ behavior: 'smooth', block: 'center' });
+            }
+            
+            result.innerHTML = `
+                <div class="success-box">
+                    <div class="success-icon">✓</div>
+                    <h4>报告生成成功！</h4>
+                    <p>${data.message || '所有图片已合并，报告已生成'}</p>
+                    <a href="{% url "antioxidant_report:download" %}" class="btn btn-primary" onclick="return downloadReport(event)">
+                        📥 下载报告
+                    </a>
+                </div>
+            `;
+            showAlert('报告生成成功！', 'success');
+        } else {
+            let errorMsg = data.error || '未知错误';
+            if (errorMsg.includes('使用次数限制')) {
+                errorMsg += '<br><a href="{% url 'login' %}" style="color: #667eea; font-weight: bold;">点击登录</a> 后可不限次数使用';
+            }
+            const errorDetails = data.trace || null;
+            setError(4, '报告生成失败: ' + errorMsg, errorDetails);
+            result.innerHTML = 
+                `<div class="error-hint">生成失败，请查看下方错误信息</div>`;
+        }
+    } catch (error) {
+        setError(4, '报告生成出错: ' + error.message, error.stack);
+        result.innerHTML = 
+            `<div class="error-hint">生成出错，请查看下方错误信息</div>`;
+    } finally {
+        btn.disabled = false;
+        btn.innerHTML = '<span class="btn-icon">🔧</span> 开始合并生成报告';
+    }
+}
+
+async function downloadReport(e) {
+    e.preventDefault();
+    
+    try {
+        const response = await fetch('{% url "antioxidant_report:download" %}', {
+            method: 'POST',
+            headers: {'Content-Type': 'application/json'}
+        });
+        
+        if (response.ok) {
+            const blob = await response.blob();
+            const url = window.URL.createObjectURL(blob);
+            const a = document.createElement('a');
+            a.href = url;
+            a.download = '抗氧化报告.zip';
+            document.body.appendChild(a);
+            a.click();
+            window.URL.revokeObjectURL(url);
+            document.body.removeChild(a);
+            showAlert('下载开始！', 'success');
+        } else {
+            const data = await response.json();
+            showAlert('下载失败: ' + (data.error || '未知错误'), 'error');
+        }
+    } catch (error) {
+        showAlert('下载出错: ' + error.message, 'error');
+    }
+}
+</script>
+
+<style>
+/* ==================== 工作流容器 ==================== */
+.workflow-container {
+    max-width: 1200px;
+    margin: 0 auto;
+    padding: 20px;
+}
+
+/* ==================== 页面标题 ==================== */
+.page-header {
+    text-align: center;
+    margin-bottom: 30px;
+}
+
+.page-header h1 {
+    font-size: 28px;
+    color: #333;
+    margin-bottom: 8px;
+}
+
+.page-header .subtitle {
+    color: #666;
+    font-size: 14px;
+}
+
+/* ==================== 步骤导航 ==================== */
+.step-nav {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    margin-bottom: 30px;
+    padding: 20px;
+    background: #f8f9fa;
+    border-radius: 12px;
+}
+
+.step-item {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    cursor: pointer;
+    transition: all 0.3s;
+}
+
+.step-number {
+    width: 40px;
+    height: 40px;
+    border-radius: 50%;
+    background: #e9ecef;
+    color: #666;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-weight: bold;
+    transition: all 0.3s;
+}
+
+.step-item.active .step-number,
+.step-item.completed .step-number {
+    background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+    color: white;
+}
+
+.step-label {
+    margin-top: 8px;
+    font-size: 12px;
+    color: #666;
+}
+
+.step-item.active .step-label,
+.step-item.completed .step-label {
+    color: #667eea;
+    font-weight: 600;
+}
+
+.step-line {
+    width: 60px;
+    height: 2px;
+    background: #e9ecef;
+    margin: 0 15px;
+    margin-bottom: 20px;
+}
+
+/* ==================== 步骤内容 ==================== */
+.step-content {
+    display: none;
+}
+
+.step-content.active {
+    display: block;
+    animation: fadeIn 0.3s ease;
+}
+
+@keyframes fadeIn {
+    from { opacity: 0; transform: translateY(10px); }
+    to { opacity: 1; transform: translateY(0); }
+}
+
+/* ==================== 卡片样式 ==================== */
+.card {
+    background: white;
+    border-radius: 12px;
+    box-shadow: 0 2px 8px rgba(0,0,0,0.08);
+    padding: 24px;
+    margin-bottom: 20px;
+}
+
+.card-header {
+    display: flex;
+    align-items: center;
+    margin-bottom: 20px;
+    padding-bottom: 15px;
+    border-bottom: 1px solid #e9ecef;
+}
+
+.step-badge {
+    background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+    color: white;
+    padding: 4px 12px;
+    border-radius: 20px;
+    font-size: 12px;
+    margin-right: 12px;
+}
+
+.card-header h3 {
+    margin: 0;
+    font-size: 18px;
+    color: #333;
+}
+
+/* ==================== 上传区域 ==================== */
+.upload-card {
+    text-align: center;
+}
+
+.upload-zone {
+    border: 2px dashed #d0d0d0;
+    border-radius: 12px;
+    padding: 60px 40px;
+    cursor: pointer;
+    transition: all 0.3s;
+    background: #fafafa;
+}
+
+.upload-zone:hover,
+.upload-zone.dragover {
+    border-color: #667eea;
+    background: #f0f4ff;
+}
+
+.upload-icon {
+    font-size: 48px;
+    margin-bottom: 15px;
+}
+
+.upload-text {
+    font-size: 16px;
+    color: #333;
+    margin-bottom: 8px;
+}
+
+.upload-hint {
+    font-size: 12px;
+    color: #999;
+}
+
+.folder-tag {
+    display: inline-block;
+    background: #e3f2fd;
+    color: #1976d2;
+    padding: 6px 12px;
+    border-radius: 16px;
+    margin: 4px;
+    font-size: 13px;
+}
+
+/* ==================== 表单样式 ==================== */
+.form-section {
+    margin-bottom: 30px;
+}
+
+.section-title {
+    font-size: 16px;
+    color: #333;
+    margin-bottom: 15px;
+    padding-left: 12px;
+    border-left: 4px solid #667eea;
+}
+
+.form-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(250px, 1fr));
+    gap: 15px;
+}
+
+.form-grid-2 {
+    display: grid;
+    grid-template-columns: repeat(2, 1fr);
+    gap: 20px;
+}
+
+.form-group {
+    display: flex;
+    flex-direction: column;
+}
+
+.form-group.required label::after {
+    content: ' *';
+    color: #e74c3c;
+}
+
+.form-group label {
+    font-size: 13px;
+    color: #555;
+    margin-bottom: 6px;
+    font-weight: 500;
+}
+
+.form-group input,
+.form-group select,
+.form-group textarea {
+    padding: 10px 12px;
+    border: 1px solid #ddd;
+    border-radius: 6px;
+    font-size: 14px;
+    transition: border-color 0.2s;
+}
+
+.form-group input:focus,
+.form-group select:focus,
+.form-group textarea:focus {
+    outline: none;
+    border-color: #667eea;
+}
+
+.form-inline {
+    display: flex;
+    align-items: flex-end;
+    gap: 15px;
+    margin-bottom: 20px;
+}
+
+.form-actions {
+    display: flex;
+    justify-content: space-between;
+    margin-top: 30px;
+    padding-top: 20px;
+    border-top: 1px solid #e9ecef;
+}
+
+/* ==================== 信息提示 ==================== */
+.info-hint {
+    background: #fff8e1;
+    border-left: 4px solid #ffc107;
+    padding: 15px;
+    border-radius: 6px;
+    margin-bottom: 15px;
+    font-size: 13px;
+}
+
+.info-hint code {
+    background: rgba(0,0,0,0.05);
+    padding: 2px 6px;
+    border-radius: 3px;
+    font-family: monospace;
+}
+
+.info-hint ul {
+    margin: 10px 0 0 20px;
+}
+
+.info-hint li {
+    margin: 5px 0;
+}
+
+/* ==================== 表格样式 ==================== */
+table {
+    width: 100%;
+    border-collapse: collapse;
+    font-size: 13px;
+}
+
+th, td {
+    padding: 10px;
+    text-align: left;
+    border-bottom: 1px solid #e9ecef;
+}
+
+th {
+    background: #f8f9fa;
+    font-weight: 600;
+    color: #555;
+}
+
+.compact-table th,
+.compact-table td {
+    padding: 8px;
+    font-size: 12px;
+}
+
+.stats-table th {
+    background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+    color: white;
+}
+
+/* ==================== 按钮样式 ==================== */
+.btn {
+    padding: 10px 24px;
+    border: none;
+    border-radius: 6px;
+    font-size: 14px;
+    cursor: pointer;
+    transition: all 0.2s;
+    display: inline-flex;
+    align-items: center;
+    gap: 8px;
+}
+
+.btn-primary {
+    background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+    color: white;
+}
+
+.btn-primary:hover {
+    transform: translateY(-2px);
+    box-shadow: 0 4px 12px rgba(102, 126, 234, 0.4);
+}
+
+.btn-secondary {
+    background: #6c757d;
+    color: white;
+}
+
+.btn-secondary:hover {
+    background: #5a6268;
+}
+
+.btn-large {
+    padding: 15px 40px;
+    font-size: 16px;
+}
+
+.btn-icon {
+    font-size: 16px;
+}
+
+.btn:disabled {
+    opacity: 0.6;
+    cursor: not-allowed;
+}
+
+/* ==================== 分析区域 ==================== */
+.analysis-section {
+    margin-bottom: 30px;
+    padding-bottom: 20px;
+    border-bottom: 1px solid #e9ecef;
+}
+
+.analysis-section h4 {
+    font-size: 15px;
+    color: #333;
+    margin-bottom: 10px;
+}
+
+.section-hint {
+    font-size: 12px;
+    color: #666;
+    margin-bottom: 15px;
+}
+
+.mode-badge {
+    display: inline-block;
+    background: #e3f2fd;
+    color: #1976d2;
+    padding: 8px 16px;
+    border-radius: 20px;
+    margin-bottom: 20px;
+    font-size: 13px;
+}
+
+.chart-image {
+    max-width: 100%;
+    border-radius: 8px;
+    box-shadow: 0 2px 8px rgba(0,0,0,0.1);
+}
+
+/* ==================== 生成区域 ==================== */
+.generate-section {
+    text-align: center;
+    padding: 40px;
+}
+
+.generate-preview {
+    margin-bottom: 30px;
+}
+
+.preview-icon {
+    font-size: 64px;
+    margin-bottom: 15px;
+}
+
+.generate-preview h4 {
+    font-size: 18px;
+    color: #333;
+    margin-bottom: 8px;
+}
+
+.generate-preview p {
+    color: #666;
+}
+
+/* ==================== 成功/错误框 ==================== */
+.success-box {
+    background: #d4edda;
+    border: 1px solid #c3e6cb;
+    border-radius: 8px;
+    padding: 30px;
+    text-align: center;
+}
+
+.success-icon {
+    font-size: 48px;
+    color: #28a745;
+    margin-bottom: 15px;
+}
+
+.error-box {
+    background: #f8d7da;
+    border: 1px solid #f5c6cb;
+    border-radius: 8px;
+    padding: 20px;
+    color: #721c24;
+}
+
+/* ==================== 提示框 ==================== */
+#alert-container {
+    position: fixed;
+    top: 20px;
+    right: 20px;
+    z-index: 1000;
+    max-width: 400px;
+}
+
+.alert {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    padding: 15px 20px;
+    border-radius: 8px;
+    margin-bottom: 10px;
+    box-shadow: 0 4px 12px rgba(0,0,0,0.15);
+    animation: slideIn 0.3s ease;
+}
+
+@keyframes slideIn {
+    from { transform: translateX(100%); opacity: 0; }
+    to { transform: translateX(0); opacity: 1; }
+}
+
+.alert-success { background: #d4edda; color: #155724; }
+.alert-error { background: #f8d7da; color: #721c24; }
+.alert-info { background: #d1ecf1; color: #0c5460; }
+
+.alert-icon {
+    font-size: 18px;
+}
+
+.alert-message {
+    flex: 1;
+    font-size: 14px;
+}
+
+.alert-close {
+    background: none;
+    border: none;
+    font-size: 20px;
+    cursor: pointer;
+    opacity: 0.5;
+}
+
+.alert-close:hover {
+    opacity: 1;
+}
+
+/* ==================== 加载动画 ==================== */
+.loading {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    padding: 40px;
+    color: #667eea;
+}
+
+.spinner {
+    width: 40px;
+    height: 40px;
+    border: 4px solid #e9ecef;
+    border-top-color: #667eea;
+    border-radius: 50%;
+    animation: spin 1s linear infinite;
+}
+
+@keyframes spin {
+    to { transform: rotate(360deg); }
+}
+
+/* ==================== 错误展示 ==================== */
+.error-container {
+    margin-bottom: 20px;
+}
+
+.error-box {
+    background: #fee;
+    border: 2px solid #e74c3c;
+    border-radius: 8px;
+    padding: 20px;
+    animation: shake 0.5s ease;
+}
+
+@keyframes shake {
+    0%, 100% { transform: translateX(0); }
+    25% { transform: translateX(-10px); }
+    75% { transform: translateX(10px); }
+}
+
+.error-title {
+    font-size: 16px;
+    font-weight: bold;
+    color: #c0392b;
+    margin-bottom: 10px;
+}
+
+.error-message {
+    font-size: 14px;
+    color: #333;
+    margin-bottom: 15px;
+    padding: 10px;
+    background: rgba(231, 76, 60, 0.1);
+    border-radius: 4px;
+}
+
+.error-details {
+    margin: 15px 0;
+    padding: 15px;
+    background: #f8f9fa;
+    border-radius: 4px;
+    overflow-x: auto;
+}
+
+.error-details pre {
+    margin: 0;
+    font-size: 12px;
+    color: #666;
+    white-space: pre-wrap;
+    word-break: break-all;
+    max-height: 300px;
+    overflow-y: auto;
+}
+
+.error-hint {
+    text-align: center;
+    padding: 20px;
+    color: #e74c3c;
+    font-size: 14px;
+    background: #fee;
+    border-radius: 8px;
+    margin: 10px 0;
+}
+
+/* ==================== 响应式 ==================== */
+@media (max-width: 768px) {
+    .form-grid,
+    .form-grid-2 {
+        grid-template-columns: 1fr;
+    }
+    
+    .step-nav {
+        flex-wrap: wrap;
+    }
+    
+    .step-line {
+        display: none;
+    }
+    
+    .form-actions {
+        flex-direction: column;
+        gap: 10px;
+    }
+}
+</style>
+{% endblock %}

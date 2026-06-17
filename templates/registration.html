@@ -1,0 +1,142 @@
+{% extends "base.html" %}
+
+{% block title %}用户注册 - 斑马鱼分析系统{% endblock %}
+
+{% block content %}
+<div class="card" style="max-width: 600px; margin: 0 auto;">
+    <h2>用户注册</h2>
+    <p style="color: #666; margin-bottom: 20px;">请填写以下信息完成注册。注册后需要管理员审核激活。</p>
+    
+    <form id="registerForm">
+        <div class="form-group">
+            <label for="username">用户名 <span style="color: red;">*</span></label>
+            <input type="text" id="username" name="username" required minlength="3" maxlength="150" 
+                   placeholder="请输入用户名（3-150个字符）">
+            <div class="info-text">字母、数字和 @/./+/-/_ 字符</div>
+        </div>
+        
+        <div class="form-group">
+            <label for="email">邮箱 <span style="color: red;">*</span></label>
+            <input type="email" id="email" name="email" required 
+                   placeholder="请输入邮箱地址">
+        </div>
+        
+        <div class="form-group">
+            <label for="password">密码 <span style="color: red;">*</span></label>
+            <input type="password" id="password" name="password" required minlength="8" 
+                   placeholder="请输入密码（至少8位，包含字母和数字）">
+            <div class="info-text">密码必须至少8位，包含字母和数字</div>
+        </div>
+        
+        <div class="form-group">
+            <label for="password_confirm">确认密码 <span style="color: red;">*</span></label>
+            <input type="password" id="password_confirm" name="password_confirm" required 
+                   placeholder="请再次输入密码">
+        </div>
+        
+        <div class="form-group">
+            <label for="phone">手机号</label>
+            <input type="text" id="phone" name="phone" placeholder="请输入手机号（可选）">
+        </div>
+        
+        <div class="form-group">
+            <label for="real_name">真实姓名</label>
+            <input type="text" id="real_name" name="real_name" placeholder="请输入真实姓名（可选）">
+        </div>
+        
+        <div class="form-group">
+            <label for="department">部门</label>
+            <input type="text" id="department" name="department" placeholder="请输入部门（可选）">
+        </div>
+        
+        <div class="form-group">
+            <label for="bio">个人简介</label>
+            <textarea id="bio" name="bio" rows="3" placeholder="请输入个人简介（可选）"></textarea>
+        </div>
+        
+        <div id="messageBox" class="alert" style="display: none;"></div>
+        
+        <div style="display: flex; gap: 10px; margin-top: 20px;">
+            <button type="submit" class="btn" id="submitBtn">注册</button>
+            <a href="{% url 'home' %}" class="btn btn-secondary">返回首页</a>
+        </div>
+    </form>
+    
+    <div style="margin-top: 20px; text-align: center; color: #666;">
+        已有账号？ <a href="{% url 'login' %}" style="color: #667eea;">立即登录</a>
+    </div>
+</div>
+{% endblock %}
+
+{% block extra_js %}
+<script>
+const form = document.getElementById('registerForm');
+const messageBox = document.getElementById('messageBox');
+const submitBtn = document.getElementById('submitBtn');
+
+function showMessage(msg, isError) {
+    messageBox.textContent = msg;
+    messageBox.style.display = 'block';
+    messageBox.className = isError ? 'alert alert-error' : 'alert alert-success';
+}
+
+form.addEventListener('submit', async function(e) {
+    e.preventDefault();
+    
+    const formData = {
+        username: document.getElementById('username').value,
+        email: document.getElementById('email').value,
+        password: document.getElementById('password').value,
+        password_confirm: document.getElementById('password_confirm').value,
+        phone: document.getElementById('phone').value || null,
+        real_name: document.getElementById('real_name').value || null,
+        department: document.getElementById('department').value || null,
+        bio: document.getElementById('bio').value || null
+    };
+    
+    submitBtn.disabled = true;
+    submitBtn.textContent = '注册中...';
+    
+    try {
+        const response = await fetch('/api/users/register/', {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json',
+                'X-CSRFToken': getCSRFToken()
+            },
+            body: JSON.stringify(formData)
+        });
+        
+        const data = await response.json();
+        
+        if (response.ok) {
+            showMessage(data.message || '注册成功！', false);
+            form.reset();
+        } else {
+            let errorMsg = '注册失败：';
+            if (data.errors) {
+                const errors = Object.values(data.errors).flat();
+                errorMsg += errors.join('；');
+            } else {
+                errorMsg += data.message || '未知错误';
+            }
+            showMessage(errorMsg, true);
+        }
+    } catch (error) {
+        showMessage('网络错误，请稍后重试', true);
+    } finally {
+        submitBtn.disabled = false;
+        submitBtn.textContent = '注册';
+    }
+});
+
+function getCSRFToken() {
+    const cookies = document.cookie.split(';');
+    for (let cookie of cookies) {
+        const [name, value] = cookie.trim().split('=');
+        if (name === 'csrftoken') return value;
+    }
+    return '';
+}
+</script>
+{% endblock %}

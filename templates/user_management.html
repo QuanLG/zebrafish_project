@@ -1,0 +1,373 @@
+{% extends "base.html" %}
+
+{% block title %}用户管理 - 斑马鱼分析系统{% endblock %}
+
+{% block content %}
+<div id="loadingSection" class="card">
+    <p style="text-align: center; padding: 40px;">加载中...</p>
+</div>
+
+<div id="adminSection" class="card" style="display: none;">
+    <h2>用户管理</h2>
+    <p style="color: #666; margin-bottom: 20px;">管理系统用户，审核新注册用户、激活/停用账号</p>
+    
+    <div style="margin-bottom: 20px; display: flex; gap: 10px; flex-wrap: wrap;">
+        <button class="btn" onclick="loadUsers('all')">全部用户</button>
+        <button class="btn btn-secondary" onclick="loadUsers('pending')">待审核</button>
+        <button class="btn btn-secondary" onclick="loadUsers('active')">已激活</button>
+        <button class="btn btn-secondary" onclick="loadUsers('inactive')">未激活</button>
+        <button class="btn btn-secondary" onclick="loadUsers('suspended')">已停用</button>
+    </div>
+    
+    <div id="messageBox" class="alert" style="display: none;"></div>
+    
+    <div id="usersTable" class="loading" style="display: none;">
+        <div class="spinner"></div>
+        <p>加载中...</p>
+    </div>
+    
+    <div id="usersContent"></div>
+</div>
+
+<div id="userSection" class="card" style="display: none;">
+    <h2>个人信息</h2>
+    <p style="color: #666; margin-bottom: 20px;">查看和修改您的个人信息和密码</p>
+    
+    <div id="userInfo"></div>
+    
+    <div style="margin-top: 30px; padding-top: 20px; border-top: 1px solid #ddd;">
+        <h3>修改密码</h3>
+        <div id="pwdMessageBox" class="alert" style="display: none;"></div>
+        <form onsubmit="changePassword(event)">
+            <div style="margin-bottom: 15px;">
+                <label style="display: block; margin-bottom: 5px; font-weight: bold;">当前密码</label>
+                <input type="password" id="oldPassword" required style="width: 100%; max-width: 300px; padding: 8px; border: 1px solid #ddd; border-radius: 4px;">
+            </div>
+            <div style="margin-bottom: 15px;">
+                <label style="display: block; margin-bottom: 5px; font-weight: bold;">新密码</label>
+                <input type="password" id="newPassword" required minlength="8" style="width: 100%; max-width: 300px; padding: 8px; border: 1px solid #ddd; border-radius: 4px;">
+            </div>
+            <div style="margin-bottom: 15px;">
+                <label style="display: block; margin-bottom: 5px; font-weight: bold;">确认新密码</label>
+                <input type="password" id="confirmPassword" required minlength="8" style="width: 100%; max-width: 300px; padding: 8px; border: 1px solid #ddd; border-radius: 4px;">
+            </div>
+            <button type="submit" class="btn">修改密码</button>
+        </form>
+    </div>
+</div>
+{% endblock %}
+
+{% block extra_js %}
+<script>
+let currentFilter = 'all';
+let currentUser = null;
+
+function showMessage(msg, isError, boxId = 'messageBox') {
+    const box = document.getElementById(boxId);
+    box.textContent = msg;
+    box.style.display = 'block';
+    box.className = isError ? 'alert alert-error' : 'alert alert-success';
+    setTimeout(() => box.style.display = 'none', 3000);
+}
+
+function getAuthHeaders() {
+    const token = localStorage.getItem('access_token');
+    return {
+        'Content-Type': 'application/json',
+        'Authorization': token ? `Bearer ${token}` : ''
+    };
+}
+
+async function checkUserRole() {
+    try {
+        const response = await fetch('/api/users/me/', { headers: getAuthHeaders() });
+        
+        if (response.status === 401) {
+            window.location.href = '/login/?next=/users-manage/';
+            return;
+        }
+        
+        const result = await response.json();
+        
+        // 解析后端响应结构 {code: 200, data: {...}}
+        const user = result.data || result;
+        currentUser = user;
+        
+        // 验证用户数据
+        if (!user || !user.username) {
+            throw new Error('用户数据无效');
+        }
+        
+        // 保存用户信息到 localStorage
+        localStorage.setItem('user_info', JSON.stringify({
+            id: user.id,
+            username: user.username,
+            role: user.role
+        }));
+        
+        document.getElementById('loadingSection').style.display = 'none';
+        
+        if (user.role === 'admin') {
+            document.getElementById('adminSection').style.display = 'block';
+            loadUsers('all');
+        } else {
+            document.getElementById('userSection').style.display = 'block';
+            renderUserInfo(user);
+        }
+    } catch (error) {
+        console.error('加载用户信息失败:', error);
+        document.getElementById('loadingSection').innerHTML = 
+            '<p style="text-align: center; color: #dc3545; padding: 40px;">加载失败，请刷新页面重试</p>';
+    }
+}
+
+function formatDate(dateStr) {
+    if (!dateStr) return '-';
+    try {
+        const date = new Date(dateStr);
+        if (isNaN(date.getTime())) return '-';
+        return date.toLocaleString('zh-CN');
+    } catch {
+        return '-';
+    }
+}
+
+function renderUserInfo(user) {
+    const statusMap = {
+        'pending': '<span style="color: #856404; background: #fff3cd; padding: 3px 8px; border-radius: 3px;">待审核</span>',
+        'active': '<span style="color: #155724; background: #d4edda; padding: 3px 8px; border-radius: 3px;">已激活</span>',
+        'inactive': '<span style="color: #0c5460; background: #d1ecf1; padding: 3px 8px; border-radius: 3px;">未激活</span>',
+        'suspended': '<span style="color: #721c24; background: #f8d7da; padding: 3px 8px; border-radius: 3px;">已停用</span>'
+    };
+    
+    const roleMap = {
+        'admin': '系统管理员',
+        'researcher': '研究人员',
+        'operator': '实验操作员',
+        'viewer': '只读用户'
+    };
+    
+    document.getElementById('userInfo').innerHTML = `
+        <table style="width: 100%; max-width: 500px;">
+            <tr style="border-bottom: 1px solid #eee;">
+                <td style="padding: 10px; color: #666;">用户名</td>
+                <td style="padding: 10px;">${user.username || '-'}</td>
+            </tr>
+            <tr style="border-bottom: 1px solid #eee;">
+                <td style="padding: 10px; color: #666;">邮箱</td>
+                <td style="padding: 10px;">${user.email || '-'}</td>
+            </tr>
+            <tr style="border-bottom: 1px solid #eee;">
+                <td style="padding: 10px; color: #666;">真实姓名</td>
+                <td style="padding: 10px;">${user.real_name || '-'}</td>
+            </tr>
+            <tr style="border-bottom: 1px solid #eee;">
+                <td style="padding: 10px; color: #666;">手机号</td>
+                <td style="padding: 10px;">${user.phone || '-'}</td>
+            </tr>
+            <tr style="border-bottom: 1px solid #eee;">
+                <td style="padding: 10px; color: #666;">部门</td>
+                <td style="padding: 10px;">${user.department || '-'}</td>
+            </tr>
+            <tr style="border-bottom: 1px solid #eee;">
+                <td style="padding: 10px; color: #666;">角色</td>
+                <td style="padding: 10px;">${roleMap[user.role] || user.role || '-'}</td>
+            </tr>
+            <tr style="border-bottom: 1px solid #eee;">
+                <td style="padding: 10px; color: #666;">状态</td>
+                <td style="padding: 10px;">${statusMap[user.status] || user.status || '-'}</td>
+            </tr>
+            <tr>
+                <td style="padding: 10px; color: #666;">注册时间</td>
+                <td style="padding: 10px;">${formatDate(user.date_joined)}</td>
+            </tr>
+        </table>
+    `;
+}
+
+async function changePassword(e) {
+    e.preventDefault();
+    
+    const oldPwd = document.getElementById('oldPassword').value;
+    const newPwd = document.getElementById('newPassword').value;
+    const confirmPwd = document.getElementById('confirmPassword').value;
+    
+    if (newPwd !== confirmPwd) {
+        showMessage('两次输入的新密码不一致', true, 'pwdMessageBox');
+        return;
+    }
+    
+    if (newPwd.length < 8) {
+        showMessage('新密码长度不能少于8位', true, 'pwdMessageBox');
+        return;
+    }
+    
+    try {
+        const response = await fetch('/api/users/me/password/', {
+            method: 'POST',
+            headers: getAuthHeaders(),
+            body: JSON.stringify({
+                old_password: oldPwd,
+                new_password: newPwd,
+                new_password_confirm: confirmPwd
+            })
+        });
+        
+        const result = await response.json();
+        
+        if (response.ok) {
+            showMessage(result.message || '密码修改成功', false, 'pwdMessageBox');
+            document.getElementById('oldPassword').value = '';
+            document.getElementById('newPassword').value = '';
+            document.getElementById('confirmPassword').value = '';
+        } else {
+            // 解析错误信息
+            let errorMsg = result.message || '修改失败';
+            if (result.errors) {
+                // 将错误对象转换为可读字符串
+                const errors = Object.keys(result.errors).map(key => {
+                    return `${key}: ${result.errors[key].join(', ')}`;
+                });
+                errorMsg = errors.join('; ') || errorMsg;
+            }
+            showMessage(errorMsg, true, 'pwdMessageBox');
+        }
+    } catch (error) {
+        showMessage('网络错误', true, 'pwdMessageBox');
+    }
+}
+
+async function loadUsers(status) {
+    currentFilter = status;
+    const table = document.getElementById('usersTable');
+    const content = document.getElementById('usersContent');
+    
+    table.style.display = 'block';
+    content.innerHTML = '';
+    
+    let url = '/api/users/';
+    if (status && status !== 'all') {
+        url += `?status=${status}`;
+    }
+    
+    try {
+        const response = await fetch(url, { headers: getAuthHeaders() });
+        
+        if (response.status === 401) {
+            showMessage('请先登录', true);
+            setTimeout(() => window.location.href = '/login/?next=/users-manage/', 1500);
+            return;
+        }
+        
+        const result = await response.json();
+        table.style.display = 'none';
+        
+        if (!response.ok) {
+            showMessage(result.message || result.detail || '加载失败', true);
+            return;
+        }
+        
+        // 解析后端响应结构
+        const data = result.data || result;
+        const users = data.results || data;
+        renderUsers(Array.isArray(users) ? users : []);
+    } catch (error) {
+        table.style.display = 'none';
+        showMessage('网络错误', true);
+    }
+}
+
+function renderUsers(users) {
+    const content = document.getElementById('usersContent');
+    
+    if (users.length === 0) {
+        content.innerHTML = '<p style="text-align: center; color: #999; padding: 40px;">暂无用户</p>';
+        return;
+    }
+    
+    let html = `
+        <table>
+            <thead>
+                <tr>
+                    <th>用户名</th>
+                    <th>邮箱</th>
+                    <th>真实姓名</th>
+                    <th>角色</th>
+                    <th>状态</th>
+                    <th>注册时间</th>
+                    <th>操作</th>
+                </tr>
+            </thead>
+            <tbody>
+    `;
+    
+    const statusMap = {
+        'pending': '<span style="color: #856404; background: #fff3cd; padding: 3px 8px; border-radius: 3px;">待审核</span>',
+        'active': '<span style="color: #155724; background: #d4edda; padding: 3px 8px; border-radius: 3px;">已激活</span>',
+        'inactive': '<span style="color: #0c5460; background: #d1ecf1; padding: 3px 8px; border-radius: 3px;">未激活</span>',
+        'suspended': '<span style="color: #721c24; background: #f8d7da; padding: 3px 8px; border-radius: 3px;">已停用</span>'
+    };
+    
+    const roleMap = {
+        'admin': '系统管理员',
+        'researcher': '研究人员',
+        'operator': '实验操作员',
+        'viewer': '只读用户'
+    };
+    
+    users.forEach(user => {
+        html += `
+            <tr>
+                <td>${user.username || '-'}</td>
+                <td>${user.email || '-'}</td>
+                <td>${user.real_name || '-'}</td>
+                <td>${roleMap[user.role] || user.role || '-'}</td>
+                <td>${statusMap[user.status] || user.status || '-'}</td>
+                <td>${formatDate(user.date_joined)}</td>
+                <td>${renderActions(user)}</td>
+            </tr>
+        `;
+    });
+    
+    html += '</tbody></table>';
+    content.innerHTML = html;
+}
+
+function renderActions(user) {
+    let actions = '';
+    if (user.status !== 'active') {
+        actions += `<button class="btn" style="padding: 5px 10px; font-size: 12px;" onclick="updateUserStatus('${user.id}', 'active')">激活</button> `;
+    }
+    if (user.status === 'active') {
+        actions += `<button class="btn btn-secondary" style="padding: 5px 10px; font-size: 12px;" onclick="updateUserStatus('${user.id}', 'suspended')">停用</button> `;
+    }
+    return actions || '-';
+}
+
+async function updateUserStatus(userId, newStatus) {
+    if (!confirm(`确定要将此用户状态修改为「${newStatus === 'active' ? '已激活' : '已停用'}」吗？`)) {
+        return;
+    }
+    
+    try {
+        const response = await fetch(`/api/users/${userId}/`, {
+            method: 'PATCH',
+            headers: getAuthHeaders(),
+            body: JSON.stringify({ status: newStatus })
+        });
+        
+        if (response.ok) {
+            showMessage('操作成功', false);
+            loadUsers(currentFilter);
+        } else {
+            const data = await response.json();
+            showMessage(data.detail || '操作失败', true);
+        }
+    } catch (error) {
+        showMessage('网络错误', true);
+    }
+}
+
+window.onload = () => checkUserRole();
+</script>
+{% endblock %}
