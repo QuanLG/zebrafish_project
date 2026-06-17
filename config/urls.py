@@ -30,7 +30,6 @@ urlpatterns = [
     path('api/users/', include('user_management.urls')),
     path('multi-stats/', include('multi_stats.urls')),
     path('antioxidant/', include('antioxidant_report.urls')),
-    path('tumor/', include('tumor_report.urls')),
     path('ros_iod/', include('ros_iod.urls')),
 ]
 

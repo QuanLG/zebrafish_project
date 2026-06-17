@@ -7,8 +7,13 @@
 <div class="workflow-container">
     <!-- 页面标题 -->
     <div class="page-header">
-        <h1>🧪 斑马鱼抗氧化报告</h1>
-        <p class="subtitle">从ROS视频处理结果生成专业抗氧化实验报告</p>
+        <div class="header-with-back">
+            <div>
+                <h1>🧪 斑马鱼抗氧化报告</h1>
+                <p class="subtitle">从ROS视频处理结果生成专业抗氧化实验报告</p>
+            </div>
+            <a href="{% url 'home' %}" class="btn" style="text-decoration: none;">🏠 返回主页</a>
+        </div>
     </div>
 
     <div id="alert-container"></div>
@@ -896,6 +901,13 @@ async function downloadReport(e) {
 }
 
 /* ==================== 页面标题 ==================== */
+.header-with-back {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    margin-bottom: 0;
+}
+
 .page-header {
     text-align: center;
     margin-bottom: 30px;

@@ -31,7 +31,6 @@ INSTALLED_APPS = [
     'rest_framework_simplejwt.token_blacklist',
     'multi_stats',
     'antioxidant_report',
-    'tumor_report',
     'ros_iod',
     'user_management',
 ]
